@@ -5,6 +5,7 @@ package lockfile
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	toml "github.com/pelletier/go-toml/v2"
 )
@@ -50,6 +51,9 @@ func Load(path string) (*Lockfile, error) {
 func (lf *Lockfile) Save(path string) error {
 	data, err := toml.Marshal(lf)
 	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)

@@ -7,7 +7,7 @@ import (
 )
 
 func newAddCmd() *cobra.Command {
-	var editable bool
+	var editable, global bool
 	cmd := &cobra.Command{
 		Use:   "add <source>",
 		Short: "Add a skill: resolve, lock, install, and link it",
@@ -22,7 +22,7 @@ func newAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			eng, err := projectEngine(cmd)
+			eng, err := engineFor(cmd, global)
 			if err != nil {
 				return err
 			}
@@ -31,5 +31,7 @@ func newAddCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&editable, "editable", false,
 		"link the working tree of a local path source instead of copying a pinned commit")
+	cmd.Flags().BoolVar(&global, "global", false,
+		"install for the whole machine (config dir manifest, skills under ~/.agents/skills) instead of the current project")
 	return cmd
 }

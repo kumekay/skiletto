@@ -92,7 +92,11 @@ type fixture struct {
 
 func newFixture(t *testing.T, src *fakeSource) *fixture {
 	t.Helper()
-	sc := scope.Project(t.TempDir())
+	return newFixtureScope(t, src, scope.Project(t.TempDir()))
+}
+
+func newFixtureScope(t *testing.T, src *fakeSource, sc scope.Scope) *fixture {
+	t.Helper()
 	ad := newFakeAdapter()
 	out := &bytes.Buffer{}
 	errOut := &bytes.Buffer{}
@@ -516,6 +520,29 @@ func TestAddEditablePathSource(t *testing.T) {
 	// Project-scope path source warns about portability.
 	if !strings.Contains(f.errOut.String(), "warning") {
 		t.Errorf("no portability warning:\n%s", f.errOut.String())
+	}
+}
+
+func TestAddEditableMachineScopeNoWarning(t *testing.T) {
+	worktree := t.TempDir()
+	skillDir := filepath.Join(worktree, "my-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	home := t.TempDir()
+	f := newFixtureScope(t, pdfSource(), scope.Machine(home, filepath.Join(home, ".config")))
+	spec := manifest.SourceSpec{Source: worktree, IsPath: true}
+
+	if err := f.eng.Add(spec, true); err != nil {
+		t.Fatal(err)
+	}
+	// Path sources are the expected case in machine scope: no portability warning.
+	if strings.Contains(f.errOut.String(), "warning") {
+		t.Errorf("machine scope must not warn about portability:\n%s", f.errOut.String())
 	}
 }
 

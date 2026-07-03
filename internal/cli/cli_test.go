@@ -155,3 +155,72 @@ func TestAddEditableFlag(t *testing.T) {
 		t.Errorf("canonical symlink -> %q (%v), want %q", target, err, dir)
 	}
 }
+
+// setMachineHome points the machine scope at a temp home and config dir so
+// tests never touch the developer's real ~/.claude, ~/.agents, or ~/.config.
+func setMachineHome(t *testing.T) (home, config string) {
+	t.Helper()
+	home = t.TempDir()
+	config = filepath.Join(home, ".config")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", config)
+	return home, config
+}
+
+func TestAddAndSyncGlobalRoundTrip(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf")
+	home, config := setMachineHome(t)
+	t.Chdir(t.TempDir())
+
+	if _, stderr, err := run(t, "add", "--global", repo+"//skills/pdf"); err != nil {
+		t.Fatalf("add --global: %v\n%s", err, stderr)
+	}
+	for _, f := range []string{"skiletto.toml", "skiletto.lock"} {
+		if _, err := os.Stat(filepath.Join(config, "skiletto", f)); err != nil {
+			t.Errorf("missing %s in config dir: %v", f, err)
+		}
+	}
+	skillFile := filepath.Join(home, ".agents", "skills", "pdf", "SKILL.md")
+	if _, err := os.Stat(skillFile); err != nil {
+		t.Errorf("skill not materialized under home: %v", err)
+	}
+	link := filepath.Join(home, ".claude", "skills", "pdf")
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("claude link missing or not a symlink: %v", err)
+	}
+
+	if err := os.RemoveAll(filepath.Join(home, ".agents")); err != nil {
+		t.Fatal(err)
+	}
+	if _, stderr, err := run(t, "sync", "--global"); err != nil {
+		t.Fatalf("sync --global: %v\n%s", err, stderr)
+	}
+	if _, err := os.Stat(skillFile); err != nil {
+		t.Errorf("sync --global did not restore skill: %v", err)
+	}
+}
+
+func TestAddEditableGlobalNoWarning(t *testing.T) {
+	worktree := t.TempDir()
+	dir := filepath.Join(worktree, "my-skill")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	home, _ := setMachineHome(t)
+	t.Chdir(t.TempDir())
+
+	_, stderr, err := run(t, "add", "--global", "--editable", worktree)
+	if err != nil {
+		t.Fatalf("add --global --editable: %v\n%s", err, stderr)
+	}
+	if strings.Contains(stderr, "warning") {
+		t.Errorf("machine scope must not warn about portability:\n%s", stderr)
+	}
+	canonical := filepath.Join(home, ".agents", "skills", "my-skill")
+	if target, err := os.Readlink(canonical); err != nil || target != dir {
+		t.Errorf("canonical symlink -> %q (%v), want %q", target, err, dir)
+	}
+}

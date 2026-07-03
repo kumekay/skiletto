@@ -5,7 +5,7 @@ import (
 )
 
 func newSyncCmd() *cobra.Command {
-	var force bool
+	var force, global bool
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Make installed skills match the lockfile exactly",
@@ -16,7 +16,7 @@ func newSyncCmd() *cobra.Command {
 			"skipped unless --force restores them.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			eng, err := projectEngine(cmd)
+			eng, err := engineFor(cmd, global)
 			if err != nil {
 				return err
 			}
@@ -25,5 +25,7 @@ func newSyncCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&force, "force", false,
 		"restore drifted skills to their locked version and allow pruning them")
+	cmd.Flags().BoolVar(&global, "global", false,
+		"operate on the machine-scope manifest and lock instead of the current project")
 	return cmd
 }
