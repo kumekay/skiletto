@@ -47,6 +47,17 @@ func All() []Adapter {
 	return adapters
 }
 
+// NotASymlinkError reports a link location occupied by something other
+// than a symlink (e.g. a real skill directory installed by another tool),
+// which skiletto never replaces.
+type NotASymlinkError struct {
+	Path string
+}
+
+func (e *NotASymlinkError) Error() string {
+	return fmt.Sprintf("%s exists and is not a symlink; refusing to replace it", e.Path)
+}
+
 // Symlink creates (or replaces) a symlink at link pointing to target,
 // creating parent directories as needed. It refuses to replace anything
 // that is not a symlink.
@@ -56,7 +67,7 @@ func Symlink(link, target string) error {
 	}
 	if fi, err := os.Lstat(link); err == nil {
 		if fi.Mode()&os.ModeSymlink == 0 {
-			return fmt.Errorf("%s exists and is not a symlink; refusing to replace it", link)
+			return &NotASymlinkError{Path: link}
 		}
 		if err := os.Remove(link); err != nil {
 			return err

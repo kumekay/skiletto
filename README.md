@@ -40,6 +40,10 @@ skiletto remove --force pdf   # remove even if it has local modifications
 # show managed skills (with drift status) and unmanaged ones
 skiletto list
 
+# bootstrap from a Vercel `npx skills` skills-lock.json (one-way)
+skiletto import                 # reads ./skills-lock.json
+skiletto import path/to/skills-lock.json
+
 # --global installs machine-wide instead of into the current project
 skiletto add --global --editable ~/p/my-skills//my-skill
 skiletto sync --global
@@ -70,6 +74,19 @@ skiletto sync --global
   but removed from the manifest show `pruned on next sync`; skills found in
   the skills dir or a harness dir but absent from the manifest show
   `unmanaged`. It only observes.
+- `import` bootstraps `skiletto.toml` and `skiletto.lock` from a Vercel
+  `npx skills` `skills-lock.json` (default: one in the current directory).
+  It maps each entry to a canonical git source (`github` and `git`
+  sourceTypes), resolves the default-branch HEAD to a commit — Vercel's lock
+  stores no ref or SHA, so HEAD is the best available pin — and installs and
+  links each skill. Entries already in the manifest are skipped; entries that
+  cannot be mapped or resolved are reported and cause a non-zero exit without
+  aborting the ones that do resolve. Import is one-way. `--global` writes the
+  machine scope. Installed trees that import cannot prove pristine (drifted
+  lock orphans, unmanaged skill dirs) are refused unless `--force` replaces
+  them. Migrating: real skill directories that `npx skills` left in
+  `.claude/skills/` are never touched — import refuses each one and names it;
+  remove the old copy (`rm -r .claude/skills/<name>`) and re-run import.
 - `--editable` (local paths only) symlinks the working tree instead of
   copying a pinned commit, so edits are live; such entries carry no
   commit/hash and are never drift-checked.

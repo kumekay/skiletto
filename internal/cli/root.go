@@ -26,6 +26,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newUpdateCmd())
 	cmd.AddCommand(newRemoveCmd())
 	cmd.AddCommand(newListCmd())
+	cmd.AddCommand(newImportCmd())
 	return cmd
 }
 

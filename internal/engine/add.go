@@ -17,16 +17,25 @@ import (
 // MultipleSkillsError reports an ambiguous source: it contains several
 // skills and nothing picks one. From add it suggests //path invocations;
 // when the ambiguity comes from a manifest entry (ManifestName set) it
-// tells the user to set path on that entry instead.
+// tells the user to set path on that entry instead; when it comes from a
+// skills-lock.json entry (FromImport set) it points at skillPath there.
 type MultipleSkillsError struct {
 	Source       string // CLI source to embed in add suggestions
 	Ref          string
 	ManifestName string   // manifest entry the source was reached through
+	FromImport   bool     // the source was reached through a skills-lock.json entry
 	Skills       []string // skill subpaths within the source
 }
 
 func (e *MultipleSkillsError) Error() string {
 	var b strings.Builder
+	if e.FromImport {
+		fmt.Fprintf(&b, "source contains %d skills; set skillPath on this entry in skills-lock.json, or add one directly:", len(e.Skills))
+		for _, s := range e.Skills {
+			fmt.Fprintf(&b, "\n  skiletto add %s//%s", e.Source, s)
+		}
+		return b.String()
+	}
 	if e.ManifestName != "" {
 		fmt.Fprintf(&b, "source contains %d skills; set path on the %q entry in skiletto.toml to pick one:", len(e.Skills), e.ManifestName)
 		for _, s := range e.Skills {
