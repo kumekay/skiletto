@@ -332,14 +332,24 @@ func (e *Engine) install(name string, src source.Source, commit, subpath string)
 	if err != nil {
 		return "", "", err
 	}
-	canonical := e.Scope.SkillDir(name)
-	if err := removeInstalled(canonical); err != nil {
-		return "", "", err
-	}
-	if err := os.Rename(staged, canonical); err != nil {
+	if err := e.promote(staged, name); err != nil {
 		return "", "", err
 	}
 	return hash, effPath, nil
+}
+
+// promote moves a staged skill tree into the canonical location for name,
+// replacing whatever was installed there.
+func (e *Engine) promote(staged, name string) error {
+	canonical := e.Scope.SkillDir(name)
+	if err := removeInstalled(canonical); err != nil {
+		return err
+	}
+	if err := os.Rename(staged, canonical); err != nil {
+		return err
+	}
+	// Staging directories are created 0700 by MkdirTemp.
+	return os.Chmod(canonical, 0o755)
 }
 
 // stage fetches subpath at commit into a temporary directory under the

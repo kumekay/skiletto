@@ -118,11 +118,7 @@ func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *l
 	if err != nil {
 		return err
 	}
-	canonical := e.Scope.SkillDir(name)
-	if err := removeInstalled(canonical); err != nil {
-		return err
-	}
-	if err := os.Rename(staged, canonical); err != nil {
+	if err := e.promote(staged, name); err != nil {
 		return err
 	}
 	if err := e.linkAll(name); err != nil {
