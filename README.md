@@ -27,6 +27,10 @@ skiletto add --editable ~/p/my-skills//my-skill       # link the working tree
 # make installed skills match the lockfile exactly
 skiletto sync
 skiletto sync --force   # also restore drifted skills to their locked version
+
+# --global installs machine-wide instead of into the current project
+skiletto add --global --editable ~/p/my-skills//my-skill
+skiletto sync --global
 ```
 
 - `add` resolves the ref (or the default branch) to a commit SHA, records
@@ -42,6 +46,11 @@ skiletto sync --force   # also restore drifted skills to their locked version
 - `--editable` (local paths only) symlinks the working tree instead of
   copying a pinned commit, so edits are live; such entries carry no
   commit/hash and are never drift-checked.
+- `--global` (on `add` and `sync`) switches to the machine scope: the
+  manifest and lock live in the platform config dir (`~/.config/skiletto/`
+  on Linux), skills materialize in `~/.agents/skills/`, and the Claude
+  adapter links into `~/.claude/skills/`. Local path and editable sources
+  are the normal case here, so `add` skips the portability warning.
 
 ## Development
 

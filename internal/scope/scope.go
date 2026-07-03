@@ -8,12 +8,19 @@ import "path/filepath"
 // Kind identifies a scope flavor.
 type Kind string
 
-// KindProject is the project scope: files live in the repo root.
-const KindProject Kind = "project"
+// Kinds of scope.
+const (
+	// KindProject scopes files to a repo root.
+	KindProject Kind = "project"
+	// KindMachine scopes files to the user's home and config dirs.
+	KindMachine Kind = "machine"
+)
 
 // Scope holds the resolved paths for one scope.
 type Scope struct {
-	Kind         Kind
+	Kind Kind
+	// Root is the base the scope's harness link dirs hang off of: the repo
+	// root for project scope, the user's home directory for machine scope.
 	Root         string
 	ManifestPath string
 	LockPath     string
@@ -29,6 +36,20 @@ func Project(root string) Scope {
 		ManifestPath: filepath.Join(root, "skiletto.toml"),
 		LockPath:     filepath.Join(root, "skiletto.lock"),
 		SkillsDir:    filepath.Join(root, ".agents", "skills"),
+	}
+}
+
+// Machine returns the machine scope: manifest and lock under
+// configDir/skiletto, skills materialized under home/.agents/skills, and
+// harness link dirs hanging off home. home and configDir are injected so
+// path resolution stays testable and never assumes the real user home.
+func Machine(home, configDir string) Scope {
+	return Scope{
+		Kind:         KindMachine,
+		Root:         home,
+		ManifestPath: filepath.Join(configDir, "skiletto", "skiletto.toml"),
+		LockPath:     filepath.Join(configDir, "skiletto", "skiletto.lock"),
+		SkillsDir:    filepath.Join(home, ".agents", "skills"),
 	}
 }
 

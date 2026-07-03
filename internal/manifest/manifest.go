@@ -5,6 +5,7 @@ package manifest
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -66,6 +67,9 @@ func (m *Manifest) Save(path string) error {
 			fields = append(fields, "editable = true")
 		}
 		fmt.Fprintf(&b, "%s = { %s }\n", tomlKey(name), strings.Join(fields, ", "))
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
 	}
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
