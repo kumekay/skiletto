@@ -15,15 +15,25 @@ import (
 )
 
 // MultipleSkillsError reports an ambiguous source: it contains several
-// skills and no //path was given to pick one.
+// skills and nothing picks one. From add it suggests //path invocations;
+// when the ambiguity comes from a manifest entry (ManifestName set) it
+// tells the user to set path on that entry instead.
 type MultipleSkillsError struct {
-	Source string // CLI source to embed in suggestions
-	Ref    string
-	Skills []string // skill subpaths within the source
+	Source       string // CLI source to embed in add suggestions
+	Ref          string
+	ManifestName string   // manifest entry the source was reached through
+	Skills       []string // skill subpaths within the source
 }
 
 func (e *MultipleSkillsError) Error() string {
 	var b strings.Builder
+	if e.ManifestName != "" {
+		fmt.Fprintf(&b, "source contains %d skills; set path on the %q entry in skiletto.toml to pick one:", len(e.Skills), e.ManifestName)
+		for _, s := range e.Skills {
+			fmt.Fprintf(&b, "\n  path = %q", s)
+		}
+		return b.String()
+	}
 	fmt.Fprintf(&b, "source contains %d skills; pick one with //path:", len(e.Skills))
 	for _, s := range e.Skills {
 		fmt.Fprintf(&b, "\n  skiletto add %s//%s", e.Source, s)
@@ -79,12 +89,17 @@ func (e *Engine) addEditable(spec manifest.SourceSpec, m *manifest.Manifest, lf 
 	}
 
 	entry := manifest.Entry{Source: spec.Source, Path: effPath, Editable: true}
-	if err := e.ensureEditable(name, entry); err != nil {
+	if err := e.ensureEditable(name, entry, false); err != nil {
+		e.cleanupFailedAdd(name, true)
 		return err
 	}
 	m.Skills[name] = entry
 	lf.Upsert(lockfile.Skill{Name: name, Source: spec.Source, Path: effPath, Editable: true})
-	return e.saveBoth(m, lf, name)
+	if err := e.saveBoth(m, lf, name); err != nil {
+		e.cleanupFailedAdd(name, true)
+		return err
+	}
+	return nil
 }
 
 // addPinned resolves the spec's ref to a commit (via ls-remote for URLs,
@@ -122,6 +137,7 @@ func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *l
 		return err
 	}
 	if err := e.linkAll(name); err != nil {
+		e.cleanupFailedAdd(name, false)
 		return err
 	}
 	m.Skills[name] = manifest.Entry{Source: spec.Source, Path: effPath, Ref: spec.Ref}
@@ -129,7 +145,28 @@ func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *l
 		Name: name, Source: spec.Source, Path: effPath, Ref: spec.Ref,
 		Commit: commit, Hash: hash,
 	})
-	return e.saveBoth(m, lf, name)
+	if err := e.saveBoth(m, lf, name); err != nil {
+		e.cleanupFailedAdd(name, false)
+		return err
+	}
+	return nil
+}
+
+// cleanupFailedAdd removes what a failed add left behind so no orphan
+// materialized copy or link survives without a manifest entry. With
+// symlinkOnly (the editable path) the canonical location is removed only
+// when it is a symlink, never a pre-existing real directory.
+func (e *Engine) cleanupFailedAdd(name string, symlinkOnly bool) {
+	for _, a := range e.Adapters {
+		_ = a.Unlink(e.Scope, name)
+	}
+	canonical := e.Scope.SkillDir(name)
+	if symlinkOnly {
+		if fi, err := os.Lstat(canonical); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			return
+		}
+	}
+	_ = removeInstalled(canonical)
 }
 
 func (e *Engine) saveBoth(m *manifest.Manifest, lf *lockfile.Lockfile, name string) error {

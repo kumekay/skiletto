@@ -103,7 +103,7 @@ func (e *Engine) Sync(force bool) error {
 		return err
 	}
 	plan := e.planSync(m, lf, force)
-	return e.apply(m, lf, plan)
+	return e.apply(m, lf, plan, force)
 }
 
 func (e *Engine) load() (*manifest.Manifest, *lockfile.Lockfile, error) {
@@ -131,6 +131,17 @@ func (e *Engine) planSync(m *manifest.Manifest, lf *lockfile.Lockfile, force boo
 		locked := lf.Find(name)
 		switch {
 		case locked == nil || lockMismatch(entry, *locked):
+			// Replacing what the old lock entry installed must not destroy
+			// local modifications: drift-check against the old hash first.
+			if locked != nil && !locked.Editable && !force {
+				if hash, ok := e.installedHash(name); ok && hash != locked.Hash {
+					p.Actions = append(p.Actions, Action{
+						Kind: ActionWarnDrift, Name: name,
+						Message: fmt.Sprintf("skill %q has local modifications; skipping the manifest change (run 'skiletto sync --force' to overwrite)", name),
+					})
+					continue
+				}
+			}
 			p.Actions = append(p.Actions, Action{Kind: ActionFetch, Name: name})
 		case entry.Editable:
 			p.Actions = append(p.Actions, Action{Kind: ActionLink, Name: name})
@@ -199,20 +210,23 @@ func (e *Engine) installedHash(name string) (string, bool) {
 	return hash, true
 }
 
-func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan) error {
-	var errs []error
+// apply executes a plan. Every failure is reported once, on e.Err as it
+// happens; the returned error only summarizes how many skills had
+// problems.
+func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan, force bool) error {
+	failures := 0
 	lockChanged := false
 	for _, act := range plan.Actions {
 		var err error
 		switch act.Kind {
 		case ActionFetch:
-			if err = e.applyFetch(act.Name, m.Skills[act.Name], lf); err == nil {
+			if err = e.applyFetch(act.Name, m.Skills[act.Name], lf, force); err == nil {
 				lockChanged = true
 			}
 		case ActionMaterialize:
 			err = e.applyMaterialize(act.Name, *lf.Find(act.Name))
 		case ActionLink:
-			err = e.applyLink(act.Name, m.Skills[act.Name])
+			err = e.applyLink(act.Name, m.Skills[act.Name], force)
 		case ActionPrune:
 			if err = e.applyPrune(act.Name); err == nil {
 				lf.Remove(act.Name)
@@ -220,27 +234,29 @@ func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan) e
 			}
 		case ActionWarnDrift:
 			_, _ = fmt.Fprintf(e.Err, "warning: %s\n", act.Message)
-			err = fmt.Errorf("%s: local modifications", act.Name)
+			failures++
 		}
 		if err != nil {
-			errs = append(errs, err)
-			if act.Kind != ActionWarnDrift {
-				_, _ = fmt.Fprintf(e.Err, "error: %s: %v\n", act.Name, err)
-			}
+			failures++
+			_, _ = fmt.Fprintf(e.Err, "error: %s: %v\n", act.Name, err)
 		}
 	}
 	if lockChanged {
 		if err := lf.Save(e.Scope.LockPath); err != nil {
-			errs = append(errs, err)
+			failures++
+			_, _ = fmt.Fprintf(e.Err, "error: %v\n", err)
 		}
 	}
-	return errors.Join(errs...)
+	if failures > 0 {
+		return fmt.Errorf("%d skill(s) drifted or failed; see warnings above", failures)
+	}
+	return nil
 }
 
 // applyFetch resolves a manifest entry, installs it, and locks it.
-func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lockfile) error {
+func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lockfile, force bool) error {
 	if entry.Editable {
-		if err := e.ensureEditable(name, entry); err != nil {
+		if err := e.ensureEditable(name, entry, force); err != nil {
 			return err
 		}
 		lf.Upsert(lockfile.Skill{
@@ -258,6 +274,12 @@ func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lock
 	}
 	hash, _, err := e.install(name, src, commit, entry.Path)
 	if err != nil {
+		// An ambiguous source reached through the manifest is fixed by
+		// setting path on the entry, not by re-running add.
+		var multi *MultipleSkillsError
+		if errors.As(err, &multi) {
+			multi.ManifestName = name
+		}
 		return err
 	}
 	if err := e.linkAll(name); err != nil {
@@ -287,9 +309,9 @@ func (e *Engine) applyMaterialize(name string, locked lockfile.Skill) error {
 }
 
 // applyLink ensures the canonical location (editable) and harness links.
-func (e *Engine) applyLink(name string, entry manifest.Entry) error {
+func (e *Engine) applyLink(name string, entry manifest.Entry, force bool) error {
 	if entry.Editable {
-		return e.ensureEditable(name, entry)
+		return e.ensureEditable(name, entry, force)
 	}
 	return e.linkAll(name)
 }
@@ -306,13 +328,23 @@ func (e *Engine) applyPrune(name string) error {
 }
 
 // ensureEditable points the canonical location at the working tree and
-// links it into every adapter.
-func (e *Engine) ensureEditable(name string, entry manifest.Entry) error {
+// links it into every adapter. A materialized copy left by a previous
+// pinned install is only replaced with force.
+func (e *Engine) ensureEditable(name string, entry manifest.Entry, force bool) error {
 	worktree := filepath.Join(source.ExpandHome(entry.Source), filepath.FromSlash(entry.Path))
 	if fi, err := os.Stat(worktree); err != nil || !fi.IsDir() {
 		return fmt.Errorf("editable source %s is not a directory", worktree)
 	}
-	if err := adapter.Symlink(e.Scope.SkillDir(name), worktree); err != nil {
+	canonical := e.Scope.SkillDir(name)
+	if fi, err := os.Lstat(canonical); err == nil && fi.Mode()&os.ModeSymlink == 0 {
+		if !force {
+			return fmt.Errorf("%s contains a materialized copy; run 'skiletto sync --force' to replace it with the editable link", canonical)
+		}
+		if err := removeInstalled(canonical); err != nil {
+			return err
+		}
+	}
+	if err := adapter.Symlink(canonical, worktree); err != nil {
 		return err
 	}
 	return e.linkAll(name)

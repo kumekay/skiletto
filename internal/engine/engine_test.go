@@ -537,3 +537,186 @@ func TestAddDuplicateNameFails(t *testing.T) {
 		t.Error("want error for duplicate skill name")
 	}
 }
+
+// Finding 1: a manifest edit (e.g. ref change) on a drifted skill must not
+// silently overwrite the local modifications.
+func TestSyncManifestChangeDoesNotClobberDrift(t *testing.T) {
+	f := newFixture(t, pdfSource())
+	f.writeManifest(t, &manifest.Manifest{Skills: map[string]manifest.Entry{"pdf": pdfEntry()}})
+	if err := f.eng.Sync(false); err != nil {
+		t.Fatal(err)
+	}
+	mod := filepath.Join(f.scope.SkillDir("pdf"), "SKILL.md")
+	if err := os.WriteFile(mod, []byte("# hacked"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Change the entry's ref: the entry no longer matches the lock.
+	entry := pdfEntry()
+	entry.Ref = "v2"
+	f.writeManifest(t, &manifest.Manifest{Skills: map[string]manifest.Entry{"pdf": entry}})
+
+	err := f.eng.Sync(false)
+	if err == nil {
+		t.Fatal("want drift error, got nil")
+	}
+	data, _ := os.ReadFile(mod)
+	if string(data) != "# hacked" {
+		t.Errorf("local modifications destroyed: content = %q", data)
+	}
+	if !strings.Contains(f.errOut.String(), "pdf") {
+		t.Errorf("no drift warning printed:\n%s", f.errOut.String())
+	}
+
+	// --force re-resolves and installs the new entry.
+	if err := f.eng.Sync(true); err != nil {
+		t.Fatalf("forced sync: %v", err)
+	}
+	data, _ = os.ReadFile(mod)
+	if string(data) != "# pdf" {
+		t.Errorf("content after force = %q", data)
+	}
+	if s := f.readLock(t).Find("pdf"); s == nil || s.Ref != "v2" {
+		t.Errorf("lock not updated: %+v", s)
+	}
+}
+
+// Finding 2: turning a pinned entry into an editable one must be possible
+// with --force (and refused, with a hint, without it).
+func TestSyncPinnedToEditableTransition(t *testing.T) {
+	f := newFixture(t, pdfSource())
+	f.writeManifest(t, &manifest.Manifest{Skills: map[string]manifest.Entry{"pdf": pdfEntry()}})
+	if err := f.eng.Sync(false); err != nil {
+		t.Fatal(err)
+	}
+
+	worktree := t.TempDir()
+	skillDir := filepath.Join(worktree, "pdf")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# live"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.writeManifest(t, &manifest.Manifest{Skills: map[string]manifest.Entry{
+		"pdf": {Source: worktree, Path: "pdf", Editable: true},
+	}})
+
+	err := f.eng.Sync(false)
+	if err == nil {
+		t.Fatal("want error without --force")
+	}
+	if !strings.Contains(f.errOut.String(), "--force") {
+		t.Errorf("error does not mention --force:\n%s", f.errOut.String())
+	}
+	if fi, statErr := os.Lstat(f.scope.SkillDir("pdf")); statErr != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Error("materialized copy replaced without --force")
+	}
+
+	if err := f.eng.Sync(true); err != nil {
+		t.Fatalf("sync --force: %v", err)
+	}
+	target, linkErr := os.Readlink(f.scope.SkillDir("pdf"))
+	if linkErr != nil {
+		t.Fatalf("canonical is not a symlink after --force: %v", linkErr)
+	}
+	if target != skillDir {
+		t.Errorf("canonical -> %q, want %q", target, skillDir)
+	}
+}
+
+// Finding 3: an ambiguous manifest entry hit during sync must point at
+// skiletto.toml, not print a malformed `skiletto add //...` suggestion.
+func TestSyncMultiSkillEntryPointsAtManifest(t *testing.T) {
+	src := &fakeSource{commit: commitA, tree: map[string]string{
+		"skills/pdf/SKILL.md": "# pdf",
+		"skills/web/SKILL.md": "# web",
+	}}
+	f := newFixture(t, src)
+	f.writeManifest(t, &manifest.Manifest{Skills: map[string]manifest.Entry{
+		"tools": {Source: "https://github.com/o/r"},
+	}})
+
+	if err := f.eng.Sync(false); err == nil {
+		t.Fatal("want error for ambiguous manifest entry")
+	}
+	out := f.errOut.String()
+	for _, want := range []string{"skiletto.toml", `path = "skills/pdf"`, `path = "skills/web"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stderr missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "skiletto add //") {
+		t.Errorf("malformed add suggestion in stderr:\n%s", out)
+	}
+}
+
+// Finding 4: a failed add must not leave an orphan materialized copy.
+func TestAddFailureLeavesNoOrphan(t *testing.T) {
+	f := newFixture(t, pdfSource())
+	f.eng.Adapters = []adapter.Adapter{failingAdapter{}}
+	spec := manifest.SourceSpec{Source: "https://github.com/o/r", Path: "skills/pdf"}
+
+	if err := f.eng.Add(spec, false); err == nil {
+		t.Fatal("want error from failing adapter")
+	}
+	if _, err := os.Lstat(f.scope.SkillDir("pdf")); !os.IsNotExist(err) {
+		t.Error("orphan materialized copy left at canonical location")
+	}
+	if _, err := os.Stat(f.scope.ManifestPath); !os.IsNotExist(err) {
+		t.Error("manifest written despite failed add")
+	}
+}
+
+func TestAddEditableFailureLeavesNoOrphan(t *testing.T) {
+	worktree := t.TempDir()
+	dir := filepath.Join(worktree, "my-skill")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := newFixture(t, pdfSource())
+	f.eng.Adapters = []adapter.Adapter{failingAdapter{}}
+	spec := manifest.SourceSpec{Source: worktree, IsPath: true}
+
+	if err := f.eng.Add(spec, true); err == nil {
+		t.Fatal("want error from failing adapter")
+	}
+	if _, err := os.Lstat(f.scope.SkillDir("my-skill")); !os.IsNotExist(err) {
+		t.Error("orphan canonical symlink left behind")
+	}
+}
+
+type failingAdapter struct{}
+
+func (failingAdapter) Name() string                   { return "failing" }
+func (failingAdapter) SkillsDir(s scope.Scope) string { return filepath.Join(s.Root, ".failing") }
+func (failingAdapter) Link(s scope.Scope, name, target string) error {
+	return fmt.Errorf("link refused")
+}
+func (failingAdapter) Unlink(s scope.Scope, name string) error { return nil }
+
+// Finding 5: each sync failure is reported exactly once (in the streamed
+// warnings, not repeated in the returned error).
+func TestSyncFailurePrintedOnce(t *testing.T) {
+	f := newFixture(t, pdfSource())
+	f.writeManifest(t, &manifest.Manifest{Skills: map[string]manifest.Entry{"pdf": pdfEntry()}})
+	if err := f.eng.Sync(false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.scope.SkillDir("pdf"), "SKILL.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := f.eng.Sync(false)
+	if err == nil {
+		t.Fatal("want drift error")
+	}
+	if got := strings.Count(f.errOut.String(), "local modifications"); got != 1 {
+		t.Errorf("drift message printed %d times on stderr:\n%s", got, f.errOut.String())
+	}
+	if strings.Contains(err.Error(), "local modifications") {
+		t.Errorf("returned error repeats the streamed message: %q", err.Error())
+	}
+}
