@@ -1,0 +1,63 @@
+# goreleaser configuration. Validate locally with:
+#   goreleaser check
+#   goreleaser release --snapshot --clean
+version: 2
+
+project_name: skiletto
+
+builds:
+  - id: skiletto
+    main: .
+    binary: skiletto
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/kumekay/skiletto/internal/cli.version={{ .Version }}
+
+archives:
+  # Human-facing archives carrying the binary plus LICENSE and README.
+  - id: archive
+    ids:
+      - skiletto
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - LICENSE
+      - README.md
+  # Raw binaries, one asset per platform, consumed by the npm/pip wrappers.
+  # Predictable names: skiletto_<os>_<arch>[.exe].
+  - id: binary
+    ids:
+      - skiletto
+    formats:
+      - binary
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: kumekay
+    name: skiletto
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"

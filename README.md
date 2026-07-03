@@ -12,6 +12,26 @@ content hashes in `skiletto.lock` (commit both), materializes skills in
 Early development — see the [design doc](https://github.com/kumekay/skiletto/wiki)
 for where this is headed.
 
+## Install
+
+With a Go toolchain (works today):
+
+```sh
+go install github.com/kumekay/skiletto@latest
+```
+
+Prebuilt binaries and the `npm` / `pip` wrappers land with the first tagged
+release:
+
+```sh
+npm install -g skiletto     # coming with the first release
+pip install skiletto        # coming with the first release
+```
+
+Or download a binary for your platform from the
+[releases page](https://github.com/kumekay/skiletto/releases) (coming with the
+first release).
+
 ## Usage
 
 Run in your project root:

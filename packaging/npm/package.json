@@ -1,0 +1,35 @@
+{
+  "name": "skiletto",
+  "version": "0.0.0",
+  "description": "Package manager for agent skills — installs the skiletto binary for your platform",
+  "keywords": [
+    "skiletto",
+    "agent",
+    "skills",
+    "package-manager",
+    "cli"
+  ],
+  "homepage": "https://github.com/kumekay/skiletto",
+  "bugs": "https://github.com/kumekay/skiletto/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kumekay/skiletto.git",
+    "directory": "packaging/npm"
+  },
+  "license": "MIT",
+  "bin": {
+    "skiletto": "bin/skiletto.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js",
+    "test": "node --test"
+  },
+  "files": [
+    "bin/skiletto.js",
+    "lib/platform.js",
+    "install.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,100 @@
+name: Release
+
+# Runs on version tags (e.g. v0.1.0). goreleaser builds the binaries and
+# creates the GitHub release unconditionally. The npm and PyPI publish steps
+# are gated on their tokens being present as repository secrets:
+#   - NPM_TOKEN   enables `npm publish`
+#   - PYPI_TOKEN  enables the wheel upload
+# Without a token, the corresponding publish step is skipped, not failed, so
+# the workflow stays green.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          include-hidden-files: true
+
+  npm:
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - name: Set package version from tag
+        working-directory: packaging/npm
+        run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+      - name: Test wrapper
+        working-directory: packaging/npm
+        run: node --test
+      - name: Publish to npm
+        if: ${{ env.NPM_TOKEN != '' }}
+        working-directory: packaging/npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  pypi:
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    env:
+      PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Build platform wheels
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}"; arch="${target#*/}"
+            ext=""; [ "$os" = "windows" ] && ext=".exe"
+            # goreleaser build dirs carry an arch-version suffix (e.g. amd64_v1, arm64_v8.0).
+            bin=$(ls dist/skiletto_${os}_${arch}_*/skiletto${ext})
+            python packaging/pypi/build_wheel.py \
+              --version "$VERSION" --os "$os" --arch "$arch" \
+              --binary "$bin" --outdir wheelhouse
+          done
+          ls -l wheelhouse
+      - name: Publish to PyPI
+        if: ${{ env.PYPI_TOKEN != '' }}
+        run: |
+          pip install --disable-pip-version-check twine
+          twine upload wheelhouse/*.whl
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
