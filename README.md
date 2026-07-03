@@ -28,6 +28,18 @@ skiletto add --editable ~/p/my-skills//my-skill       # link the working tree
 skiletto sync
 skiletto sync --force   # also restore drifted skills to their locked version
 
+# re-resolve refs to the current commit and rewrite the lock
+skiletto update         # every skill
+skiletto update pdf     # just one
+skiletto update --force # overwrite drifted skills too
+
+# drop a skill from the manifest, lock, links, and disk
+skiletto remove pdf
+skiletto remove --force pdf   # remove even if it has local modifications
+
+# show managed skills (with drift status) and unmanaged ones
+skiletto list
+
 # --global installs machine-wide instead of into the current project
 skiletto add --global --editable ~/p/my-skills//my-skill
 skiletto sync --global
@@ -43,6 +55,19 @@ skiletto sync --global
   versions. Skills with local modifications (drift) are warned about and
   skipped with a non-zero exit; `--force` restores them. Entries removed
   from the manifest are pruned (drifted ones only with `--force`).
+- `update` is the only command that moves already-locked versions: it
+  re-resolves each entry's ref (or default branch) to the current commit,
+  re-materializes and re-links it, and rewrites the lock. With no argument it
+  updates every skill; with a name, only that one. Editable entries have
+  nothing to re-resolve and are skipped; drifted skills are skipped with a
+  non-zero exit unless `--force` overwrites them.
+- `remove` drops a skill from the manifest and lock, unlinks it from every
+  harness, and deletes its materialized copy. An editable skill loses only its
+  canonical link — the working tree is left untouched. A drifted skill is
+  refused unless `--force`, since removal discards local edits.
+- `list` shows each managed skill with its pinned commit (or `editable`) and
+  status (`ok`, `drifted`, `missing`, `not-locked`), plus any unmanaged skills
+  found in the skills dir but absent from the manifest. It only observes.
 - `--editable` (local paths only) symlinks the working tree instead of
   copying a pinned commit, so edits are live; such entries carry no
   commit/hash and are never drift-checked.

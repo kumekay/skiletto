@@ -68,6 +68,9 @@ const (
 	// ActionWarnDrift reports an installed tree whose content hash does
 	// not match the lock; the files are left alone.
 	ActionWarnDrift ActionKind = "warn-drift"
+	// ActionNote reports an informational message (e.g. an editable entry
+	// skipped by update) without counting as a failure.
+	ActionNote ActionKind = "note"
 )
 
 // Action is one step of a plan.
@@ -235,6 +238,8 @@ func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan, f
 		case ActionWarnDrift:
 			_, _ = fmt.Fprintf(e.Err, "warning: %s\n", act.Message)
 			failures++
+		case ActionNote:
+			_, _ = fmt.Fprintf(e.Out, "%s\n", act.Message)
 		}
 		if err != nil {
 			failures++
