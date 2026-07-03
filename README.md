@@ -66,8 +66,10 @@ skiletto sync --global
   canonical link — the working tree is left untouched. A drifted skill is
   refused unless `--force`, since removal discards local edits.
 - `list` shows each managed skill with its pinned commit (or `editable`) and
-  status (`ok`, `drifted`, `missing`, `not-locked`), plus any unmanaged skills
-  found in the skills dir but absent from the manifest. It only observes.
+  status (`ok`, `drifted`, `missing`, `not-locked`). Skills still in the lock
+  but removed from the manifest show `pruned on next sync`; skills found in
+  the skills dir or a harness dir but absent from the manifest show
+  `unmanaged`. It only observes.
 - `--editable` (local paths only) symlinks the working tree instead of
   copying a pinned commit, so edits are live; such entries carry no
   commit/hash and are never drift-checked.

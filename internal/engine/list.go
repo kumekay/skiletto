@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -17,13 +18,15 @@ type SkillStatus struct {
 	Source   string // empty for unmanaged skills
 	Commit   string // short pinned commit, empty when editable/unmanaged/unlocked
 	Editable bool
-	// Status is one of: ok, drifted, missing, not-locked, unmanaged.
+	// Status is one of: ok, drifted, missing, not-locked,
+	// "pruned on next sync" (locked but gone from the manifest), unmanaged.
 	Status string
 }
 
 // Status observes managed skills (from the manifest, cross-checked against
-// the lock and disk) and unmanaged skills (present in the canonical skills
-// dir but absent from the manifest). It never changes anything.
+// the lock and disk), lock-only orphans that the next sync will prune, and
+// unmanaged skills found in the canonical skills dir or an adapter's skills
+// dir but absent from the manifest. It never changes anything.
 func (e *Engine) Status() ([]SkillStatus, error) {
 	m, lf, err := e.load()
 	if err != nil {
@@ -37,10 +40,13 @@ func (e *Engine) Status() ([]SkillStatus, error) {
 	sort.Strings(names)
 
 	out := make([]SkillStatus, 0, len(names))
+	claimed := make(map[string]bool, len(names))
 	for _, name := range names {
 		out = append(out, e.managedStatus(name, m.Skills[name], lf.Find(name)))
+		claimed[name] = true
 	}
-	out = append(out, e.unmanagedStatuses(m)...)
+	out = append(out, orphanStatuses(m, lf, claimed)...)
+	out = append(out, e.unmanagedStatuses(claimed)...)
 	return out, nil
 }
 
@@ -50,7 +56,9 @@ func (e *Engine) managedStatus(name string, entry manifest.Entry, locked *lockfi
 	s := SkillStatus{Name: name, Source: entry.Source, Editable: entry.Editable}
 	switch {
 	case entry.Editable:
-		if _, err := os.Lstat(e.Scope.SkillDir(name)); err == nil {
+		// Stat follows the canonical symlink: a broken link (the linked
+		// working tree was deleted) counts as missing.
+		if _, err := os.Stat(e.Scope.SkillDir(name)); err == nil {
 			s.Status = "ok"
 		} else {
 			s.Status = "missing"
@@ -71,25 +79,83 @@ func (e *Engine) managedStatus(name string, entry manifest.Entry, locked *lockfi
 	return s
 }
 
-// unmanagedStatuses lists directories in the canonical skills dir that are
-// not in the manifest. They are reported, never touched.
-func (e *Engine) unmanagedStatuses(m *manifest.Manifest) []SkillStatus {
-	entries, err := os.ReadDir(e.Scope.SkillsDir)
-	if err != nil {
-		return nil
-	}
+// orphanStatuses reports lock entries gone from the manifest. Unlike truly
+// unmanaged dirs they keep their lock identity and the next sync will
+// prune them, so they get a distinct status. Reported names are added to
+// claimed so the disk scan does not repeat them.
+func orphanStatuses(m *manifest.Manifest, lf *lockfile.Lockfile, claimed map[string]bool) []SkillStatus {
 	var out []SkillStatus
-	for _, de := range entries {
-		name := de.Name()
-		if strings.HasPrefix(name, ".") {
-			continue // hidden entries and staging temp dirs
-		}
-		if _, ok := m.Skills[name]; ok {
+	for _, locked := range lf.Skills {
+		if _, ok := m.Skills[locked.Name]; ok {
 			continue
 		}
-		out = append(out, SkillStatus{Name: name, Status: "unmanaged"})
+		s := SkillStatus{
+			Name:     locked.Name,
+			Source:   locked.Source,
+			Editable: locked.Editable,
+			Status:   "pruned on next sync",
+		}
+		if !locked.Editable {
+			s.Commit = shortCommit(locked.Commit)
+		}
+		out = append(out, s)
+		claimed[locked.Name] = true
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// unmanagedStatuses lists directories found in the canonical skills dir or
+// an adapter's skills dir whose names are not claimed by the manifest or
+// the lock. Symlinks an adapter dir holds into the canonical skills dir
+// are skiletto's own links, not unmanaged skills. Everything reported here
+// is listed only, never touched.
+func (e *Engine) unmanagedStatuses(claimed map[string]bool) []SkillStatus {
+	dirs := []string{e.Scope.SkillsDir}
+	for _, a := range e.Adapters {
+		dirs = append(dirs, a.SkillsDir(e.Scope))
+	}
+	seen := map[string]bool{}
+	var out []SkillStatus
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, de := range entries {
+			name := de.Name()
+			if strings.HasPrefix(name, ".") {
+				continue // hidden entries and staging temp dirs
+			}
+			if claimed[name] || seen[name] {
+				continue
+			}
+			if e.ownLink(filepath.Join(dir, name)) {
+				continue
+			}
+			seen[name] = true
+			out = append(out, SkillStatus{Name: name, Status: "unmanaged"})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// ownLink reports whether path is a symlink pointing into the canonical
+// skills dir, i.e. a link skiletto itself created.
+func (e *Engine) ownLink(path string) bool {
+	target, err := os.Readlink(path)
+	if err != nil {
+		return false // not a symlink
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(path), target)
+	}
+	rel, err := filepath.Rel(e.Scope.SkillsDir, filepath.Clean(target))
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // List renders Status as a table on the engine's output. It always exits
