@@ -1,6 +1,7 @@
 package vercelimport
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -121,4 +122,18 @@ func containsAll(s string, subs ...string) bool {
 		}
 	}
 	return true
+}
+
+func TestReadRejectsUnknownVersion(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "skills-lock.json")
+	if err := os.WriteFile(p, []byte(`{"version": 2, "skills": {}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Read(p)
+	if err == nil {
+		t.Fatal("want error for unknown lock version")
+	}
+	if got := err.Error(); !containsAll(got, "version 2") {
+		t.Errorf("error does not name the version: %q", got)
+	}
 }

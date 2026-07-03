@@ -58,6 +58,9 @@ func Read(path string) (*Lock, error) {
 	if err := json.Unmarshal(data, &lk); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
+	if lk.Version != 1 {
+		return nil, fmt.Errorf("%s: unsupported skills-lock.json version %d (skiletto import understands version 1)", path, lk.Version)
+	}
 	return &lk, nil
 }
 

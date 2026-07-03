@@ -28,7 +28,7 @@ func TestImportInstallsLocksAndLinks(t *testing.T) {
 		}
 	}`)
 
-	if err := f.eng.Import(lock); err != nil {
+	if err := f.eng.Import(lock, false); err != nil {
 		t.Fatalf("import: %v\n%s", err, f.errOut.String())
 	}
 
@@ -72,7 +72,7 @@ func TestImportPartialReportsFailuresAndExitsNonZero(t *testing.T) {
 		}
 	}`)
 
-	err := f.eng.Import(lock)
+	err := f.eng.Import(lock, false)
 	if err == nil {
 		t.Fatal("want non-zero exit when an entry cannot be imported")
 	}
@@ -108,7 +108,7 @@ func TestImportSkipsEntriesAlreadyInManifest(t *testing.T) {
 		}
 	}`)
 
-	if err := f.eng.Import(lock); err != nil {
+	if err := f.eng.Import(lock, false); err != nil {
 		t.Fatalf("import: %v\n%s", err, f.errOut.String())
 	}
 
@@ -124,8 +124,129 @@ func TestImportSkipsEntriesAlreadyInManifest(t *testing.T) {
 
 func TestImportMissingFileErrors(t *testing.T) {
 	f := newFixture(t, pdfSource())
-	err := f.eng.Import(filepath.Join(t.TempDir(), "nope.json"))
+	err := f.eng.Import(filepath.Join(t.TempDir(), "nope.json"), false)
 	if err == nil {
 		t.Fatal("want error for missing skills-lock.json")
+	}
+}
+
+// A lock-only orphan (in the lock and on disk, removed from the manifest)
+// with local edits must not be silently destroyed by import.
+func TestImportRefusesToOverwriteDriftedOrphan(t *testing.T) {
+	f := newFixture(t, pdfSource())
+	f.writeManifest(t, &manifest.Manifest{Skills: map[string]manifest.Entry{"pdf": pdfEntry()}})
+	if err := f.eng.Sync(false); err != nil {
+		t.Fatal(err)
+	}
+	// Orphan the entry (still locked, still installed) and drift it.
+	f.writeManifest(t, &manifest.Manifest{Skills: map[string]manifest.Entry{}})
+	mod := filepath.Join(f.scope.SkillDir("pdf"), "SKILL.md")
+	if err := os.WriteFile(mod, []byte("# precious local edits"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lock := writeVercelLock(t, t.TempDir(), `{
+		"version": 1,
+		"skills": {
+			"pdf": {"source": "o/r", "sourceType": "github", "skillPath": "skills/pdf"}
+		}
+	}`)
+	err := f.eng.Import(lock, false)
+	if err == nil {
+		t.Fatal("want non-zero exit for drifted orphan")
+	}
+	data, _ := os.ReadFile(mod)
+	if string(data) != "# precious local edits" {
+		t.Errorf("local edits destroyed: content = %q", data)
+	}
+	if !strings.Contains(f.errOut.String(), "--force") {
+		t.Errorf("error does not hint at --force:\n%s", f.errOut.String())
+	}
+	// The entry was not written to the manifest.
+	m, _ := manifest.Load(f.scope.ManifestPath)
+	if _, ok := m.Skills["pdf"]; ok {
+		t.Error("drifted entry written to manifest without --force")
+	}
+
+	// --force overwrites and imports.
+	if err := f.eng.Import(lock, true); err != nil {
+		t.Fatalf("import --force: %v\n%s", err, f.errOut.String())
+	}
+	data, _ = os.ReadFile(mod)
+	if string(data) != "# pdf" {
+		t.Errorf("content after --force = %q", data)
+	}
+	m, _ = manifest.Load(f.scope.ManifestPath)
+	if _, ok := m.Skills["pdf"]; !ok {
+		t.Error("entry not imported with --force")
+	}
+}
+
+// An installed tree with no lock entry at all (unmanaged) is just as
+// unverifiable: refuse without --force.
+func TestImportRefusesToOverwriteUnmanagedTree(t *testing.T) {
+	f := newFixture(t, pdfSource())
+	dir := f.scope.SkillDir("pdf")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# unmanaged"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lock := writeVercelLock(t, t.TempDir(), `{
+		"version": 1,
+		"skills": {
+			"pdf": {"source": "o/r", "sourceType": "github", "skillPath": "skills/pdf"}
+		}
+	}`)
+	if err := f.eng.Import(lock, false); err == nil {
+		t.Fatal("want non-zero exit for unmanaged installed tree")
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+	if string(data) != "# unmanaged" {
+		t.Errorf("unmanaged tree destroyed: content = %q", data)
+	}
+
+	if err := f.eng.Import(lock, true); err != nil {
+		t.Fatalf("import --force: %v\n%s", err, f.errOut.String())
+	}
+	data, _ = os.ReadFile(filepath.Join(dir, "SKILL.md"))
+	if string(data) != "# pdf" {
+		t.Errorf("content after --force = %q", data)
+	}
+}
+
+// A multi-skill source without skillPath must point at skills-lock.json
+// (or skiletto add), not at a skiletto.toml entry import never wrote.
+func TestImportMultiSkillEntryPointsAtSkillsLock(t *testing.T) {
+	src := &fakeSource{commit: commitA, tree: map[string]string{
+		"skills/pdf/SKILL.md": "# pdf",
+		"skills/web/SKILL.md": "# web",
+	}}
+	f := newFixture(t, src)
+	lock := writeVercelLock(t, t.TempDir(), `{
+		"version": 1,
+		"skills": {
+			"tools": {"source": "o/r", "sourceType": "github"}
+		}
+	}`)
+
+	if err := f.eng.Import(lock, false); err == nil {
+		t.Fatal("want error for ambiguous entry")
+	}
+	out := f.errOut.String()
+	for _, want := range []string{
+		"skillPath",
+		"skills-lock.json",
+		"skiletto add https://github.com/o/r//skills/pdf",
+		"skiletto add https://github.com/o/r//skills/web",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stderr missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "skiletto.toml") {
+		t.Errorf("stderr points at a skiletto.toml entry import never wrote:\n%s", out)
 	}
 }

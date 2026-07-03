@@ -82,7 +82,11 @@ skiletto sync --global
   links each skill. Entries already in the manifest are skipped; entries that
   cannot be mapped or resolved are reported and cause a non-zero exit without
   aborting the ones that do resolve. Import is one-way. `--global` writes the
-  machine scope.
+  machine scope. Installed trees that import cannot prove pristine (drifted
+  lock orphans, unmanaged skill dirs) are refused unless `--force` replaces
+  them. Migrating: real skill directories that `npx skills` left in
+  `.claude/skills/` are never touched — import refuses each one and names it;
+  remove the old copy (`rm -r .claude/skills/<name>`) and re-run import.
 - `--editable` (local paths only) symlinks the working tree instead of
   copying a pinned commit, so edits are live; such entries carry no
   commit/hash and are never drift-checked.

@@ -126,3 +126,71 @@ func TestImportMissingFileGuidance(t *testing.T) {
 		t.Errorf("error lacks guidance: %v", err)
 	}
 }
+
+// The primary migration case: npx skills left real skill directories in
+// .claude/skills. Import must keep refusing to replace them but tell the
+// user how to migrate.
+func TestImportHintsOnPreexistingClaudeSkillDir(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf")
+	project := t.TempDir()
+	t.Chdir(project)
+
+	old := filepath.Join(project, ".claude", "skills", "pdf")
+	if err := os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "SKILL.md"), []byte("# npx install"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writeLockJSON(t, project, map[string]map[string]string{
+		"pdf": {"source": repo, "sourceType": "git", "skillPath": "skills/pdf"},
+	})
+
+	_, stderr, err := run(t, "import")
+	if err == nil {
+		t.Fatal("want non-zero exit when the harness dir is occupied")
+	}
+	// The old directory is never touched.
+	data, rerr := os.ReadFile(filepath.Join(old, "SKILL.md"))
+	if rerr != nil || string(data) != "# npx install" {
+		t.Errorf("pre-existing skill dir modified: %q %v", data, rerr)
+	}
+	// The error carries migration guidance naming the directory to remove.
+	for _, want := range []string{"rm -r", old} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+}
+
+// --force is passed through to the engine: an unmanaged tree occupying the
+// canonical location blocks import until --force replaces it.
+func TestImportForceFlag(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf")
+	project := t.TempDir()
+	t.Chdir(project)
+
+	dir := filepath.Join(project, ".agents", "skills", "pdf")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# unmanaged"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writeLockJSON(t, project, map[string]map[string]string{
+		"pdf": {"source": repo, "sourceType": "git", "skillPath": "skills/pdf"},
+	})
+
+	if _, _, err := run(t, "import"); err == nil {
+		t.Fatal("want non-zero exit for occupied canonical location")
+	}
+	if _, stderr, err := run(t, "import", "--force"); err != nil {
+		t.Fatalf("import --force: %v\n%s", err, stderr)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+	if string(data) != "# pdf" {
+		t.Errorf("content after --force = %q", data)
+	}
+}
