@@ -1,0 +1,14 @@
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.go"
+      run: files=$(gofmt -l {staged_files}); if [ -n "$files" ]; then echo "gofmt needed:"; echo "$files"; exit 1; fi
+    lint:
+      glob: "*.go"
+      run: golangci-lint run
+
+pre-push:
+  commands:
+    test:
+      run: go test ./...
