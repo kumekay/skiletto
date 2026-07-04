@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kumekay/skiletto/internal/gitcli"
 	"github.com/kumekay/skiletto/internal/manifest"
 )
 
@@ -22,7 +23,9 @@ func gitT(t *testing.T, dir string, args ...string) string {
 	if dir != "" {
 		base = append(base, "-C", dir)
 	}
-	out, err := exec.Command("git", append(base, args...)...).CombinedOutput()
+	cmd := exec.Command("git", append(base, args...)...)
+	cmd.Env = gitcli.Environ()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}

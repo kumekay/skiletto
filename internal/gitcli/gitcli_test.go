@@ -21,6 +21,7 @@ func gitT(t *testing.T, dir string, args ...string) string {
 		base = append(base, "-C", dir)
 	}
 	cmd := exec.Command("git", append(base, args...)...)
+	cmd.Env = Environ()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
@@ -57,6 +58,52 @@ func makeRepo(t *testing.T) (repo, oldSHA, tipSHA string) {
 	gitT(t, repo, "tag", "v1.0")
 	tipSHA = gitT(t, repo, "rev-parse", "HEAD")
 	return repo, oldSHA, tipSHA
+}
+
+// TestRunIgnoresInheritedGitDir proves the production exec path scrubs an
+// inherited GIT_DIR (as exported by git hooks). With it set to a decoy repo,
+// ResolveLocal must still target its intended repo, not the decoy.
+func TestRunIgnoresInheritedGitDir(t *testing.T) {
+	repo, _, tip := makeRepo(t)
+
+	decoy := t.TempDir()
+	gitT(t, "", "init", "-q", decoy)
+	if err := os.WriteFile(filepath.Join(decoy, "x"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, decoy, "add", ".")
+	gitT(t, decoy, "commit", "-q", "-m", "decoy")
+
+	t.Setenv("GIT_DIR", filepath.Join(decoy, ".git"))
+	g, _ := New()
+	sha, err := g.ResolveLocal(repo, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha != tip {
+		t.Errorf("ResolveLocal honored inherited GIT_DIR: got %s, want %s", sha, tip)
+	}
+}
+
+// TestFixtureHelperIgnoresInheritedGitDir proves the test fixture helper
+// (gitT/makeRepo) scrubs an inherited GIT_DIR, so building fixtures under a
+// git hook never writes into the enclosing repository.
+func TestFixtureHelperIgnoresInheritedGitDir(t *testing.T) {
+	decoy := t.TempDir()
+	gitT(t, "", "init", "-q", decoy)
+	gitT(t, decoy, "commit", "-q", "--allow-empty", "-m", "decoy")
+	before := gitT(t, decoy, "rev-parse", "HEAD")
+
+	t.Setenv("GIT_DIR", filepath.Join(decoy, ".git"))
+	t.Setenv("GIT_WORK_TREE", decoy)
+
+	if _, _, tip := makeRepo(t); tip == "" {
+		t.Fatal("makeRepo produced no tip commit")
+	}
+
+	if after := gitT(t, decoy, "rev-parse", "HEAD"); after != before {
+		t.Errorf("fixture git leaked into inherited GIT_DIR: %s -> %s", before, after)
+	}
 }
 
 func TestNewDetectsVersion(t *testing.T) {
