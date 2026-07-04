@@ -341,7 +341,7 @@ func (e *Engine) ensureEditable(name string, entry manifest.Entry, force bool) e
 		return fmt.Errorf("editable source %s is not a directory", worktree)
 	}
 	canonical := e.Scope.SkillDir(name)
-	if fi, err := os.Lstat(canonical); err == nil && fi.Mode()&os.ModeSymlink == 0 {
+	if link, err := adapter.IsLink(canonical); err == nil && !link {
 		if !force {
 			return fmt.Errorf("%s contains a materialized copy; run 'skiletto sync --force' to replace it with the editable link", canonical)
 		}
@@ -437,16 +437,21 @@ func (e *Engine) linkAll(name string) error {
 }
 
 // removeInstalled deletes whatever occupies a canonical skill location: a
-// symlink (editable installs) is removed without following it.
+// link (a symlink for editable installs, or a directory junction on Windows)
+// is removed without following it into its target; a materialized copy is
+// removed recursively.
 func removeInstalled(dir string) error {
-	fi, err := os.Lstat(dir)
-	if os.IsNotExist(err) {
-		return nil
+	if _, err := os.Lstat(dir); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
 	}
+	link, err := adapter.IsLink(dir)
 	if err != nil {
 		return err
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
+	if link {
 		return os.Remove(dir)
 	}
 	return os.RemoveAll(dir)

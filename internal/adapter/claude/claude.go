@@ -31,17 +31,21 @@ func (Claude) SkillsDir(s scope.Scope) string {
 	return filepath.Join(s.Root, ".claude", "skills")
 }
 
-// Link symlinks target as <skills dir>/<name>, preferring a relative
-// target so the repository can be moved.
+// Link makes target visible as <skills dir>/<name>, preferring a relative
+// target so the repository can be moved. It uses the shared link helper's
+// full fallback chain (symlink, then a junction and finally a copy on
+// Windows).
 func (c Claude) Link(s scope.Scope, name, target string) error {
 	link := filepath.Join(c.SkillsDir(s), name)
 	if rel, err := filepath.Rel(filepath.Dir(link), target); err == nil {
 		target = rel
 	}
-	return adapter.Symlink(link, target)
+	_, err := adapter.LinkDir(link, target)
+	return err
 }
 
-// Unlink removes the symlink for name.
+// Unlink removes the link for name: a symlink, a junction, or a copy that
+// matches the canonical skill directory. A foreign directory is left alone.
 func (c Claude) Unlink(s scope.Scope, name string) error {
-	return adapter.RemoveLink(filepath.Join(c.SkillsDir(s), name))
+	return adapter.RemoveLinkOrCopy(filepath.Join(c.SkillsDir(s), name), s.SkillDir(name))
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/kumekay/skiletto/internal/adapter"
 	"github.com/kumekay/skiletto/internal/lockfile"
 	"github.com/kumekay/skiletto/internal/manifest"
 )
@@ -130,7 +131,7 @@ func (e *Engine) unmanagedStatuses(claimed map[string]bool) []SkillStatus {
 			if claimed[name] || seen[name] {
 				continue
 			}
-			if e.ownLink(filepath.Join(dir, name)) {
+			if adapter.IsOwnLink(e.Scope.SkillsDir, filepath.Join(dir, name)) {
 				continue
 			}
 			seen[name] = true
@@ -139,23 +140,6 @@ func (e *Engine) unmanagedStatuses(claimed map[string]bool) []SkillStatus {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
-}
-
-// ownLink reports whether path is a symlink pointing into the canonical
-// skills dir, i.e. a link skiletto itself created.
-func (e *Engine) ownLink(path string) bool {
-	target, err := os.Readlink(path)
-	if err != nil {
-		return false // not a symlink
-	}
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(filepath.Dir(path), target)
-	}
-	rel, err := filepath.Rel(e.Scope.SkillsDir, filepath.Clean(target))
-	if err != nil {
-		return false
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // List renders Status as a table on the engine's output. It always exits

@@ -7,8 +7,6 @@ package adapter
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 
 	"github.com/kumekay/skiletto/internal/scope"
@@ -56,38 +54,4 @@ type NotASymlinkError struct {
 
 func (e *NotASymlinkError) Error() string {
 	return fmt.Sprintf("%s exists and is not a symlink; refusing to replace it", e.Path)
-}
-
-// Symlink creates (or replaces) a symlink at link pointing to target,
-// creating parent directories as needed. It refuses to replace anything
-// that is not a symlink.
-func Symlink(link, target string) error {
-	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		return err
-	}
-	if fi, err := os.Lstat(link); err == nil {
-		if fi.Mode()&os.ModeSymlink == 0 {
-			return &NotASymlinkError{Path: link}
-		}
-		if err := os.Remove(link); err != nil {
-			return err
-		}
-	}
-	return os.Symlink(target, link)
-}
-
-// RemoveLink removes the symlink at link. A missing link is a no-op;
-// anything that is not a symlink is left alone with an error.
-func RemoveLink(link string) error {
-	fi, err := os.Lstat(link)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if fi.Mode()&os.ModeSymlink == 0 {
-		return fmt.Errorf("%s is not a symlink; refusing to remove it", link)
-	}
-	return os.Remove(link)
 }

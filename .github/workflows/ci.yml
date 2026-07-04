@@ -21,3 +21,18 @@ jobs:
         run: lefthook run pre-commit --all-files
       - name: Test
         run: go test ./...
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Test
+        run: go test ./...
+      - name: Build
+        run: go build -o skiletto.exe .
+      - name: End-to-end (junction fallback)
+        shell: pwsh
+        run: ./scripts/e2e-windows.ps1

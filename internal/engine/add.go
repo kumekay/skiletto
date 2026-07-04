@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kumekay/skiletto/internal/adapter"
 	"github.com/kumekay/skiletto/internal/lockfile"
 	"github.com/kumekay/skiletto/internal/manifest"
 	"github.com/kumekay/skiletto/internal/scope"
@@ -296,7 +297,7 @@ func (e *Engine) cleanupFailedAdd(name string, symlinkOnly bool) {
 	}
 	canonical := e.Scope.SkillDir(name)
 	if symlinkOnly {
-		if fi, err := os.Lstat(canonical); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		if link, err := adapter.IsLink(canonical); err != nil || !link {
 			return
 		}
 	}
