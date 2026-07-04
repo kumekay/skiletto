@@ -250,3 +250,66 @@ func TestImportMultiSkillEntryPointsAtSkillsLock(t *testing.T) {
 		t.Errorf("stderr points at a skiletto.toml entry import never wrote:\n%s", out)
 	}
 }
+
+// A v3 lock names skills by their SKILL.md file. A root skill (skillPath
+// "SKILL.md") must import as the source root itself — even when the repo
+// also contains nested skills — and a nested entry must import from its
+// directory.
+func TestImportV3RootSkillAlongsideNestedSkill(t *testing.T) {
+	src := &fakeSource{commit: commitA, tree: map[string]string{
+		"SKILL.md":               "# root",
+		"extras/helper/SKILL.md": "# helper",
+	}}
+	f := newFixture(t, src)
+	lock := writeVercelLock(t, t.TempDir(), `{
+		"version": 3,
+		"skills": {
+			"root-skill": {
+				"source": "o/r", "sourceType": "github",
+				"sourceUrl": "https://github.com/o/r.git",
+				"skillPath": "SKILL.md", "skillFolderHash": "abc",
+				"installedAt": "2026-03-16T21:08:10.962Z",
+				"updatedAt": "2026-05-12T19:31:07.260Z"
+			},
+			"helper": {
+				"source": "o/r", "sourceType": "github",
+				"sourceUrl": "https://github.com/o/r.git",
+				"skillPath": "extras/helper/SKILL.md", "skillFolderHash": ""
+			}
+		},
+		"dismissed": { "findSkillsPrompt": true },
+		"lastSelectedAgents": ["amp"]
+	}`)
+
+	if err := f.eng.Import(lock, false); err != nil {
+		t.Fatalf("import: %v\n%s", err, f.errOut.String())
+	}
+
+	m, err := manifest.Load(f.scope.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The root skill pins the source root explicitly ("."), so the nested
+	// skill in the same repo cannot make it ambiguous.
+	if e := m.Skills["root-skill"]; e.Source != "https://github.com/o/r" || e.Path != "." {
+		t.Errorf("root-skill entry = %+v", e)
+	}
+	if e := m.Skills["helper"]; e.Path != "extras/helper" {
+		t.Errorf("helper entry = %+v", e)
+	}
+
+	// Both installed with the right content and pinned in the lock.
+	data, err := os.ReadFile(filepath.Join(f.scope.SkillDir("root-skill"), "SKILL.md"))
+	if err != nil || string(data) != "# root" {
+		t.Errorf("root-skill SKILL.md = %q, err %v", data, err)
+	}
+	data, err = os.ReadFile(filepath.Join(f.scope.SkillDir("helper"), "SKILL.md"))
+	if err != nil || string(data) != "# helper" {
+		t.Errorf("helper SKILL.md = %q, err %v", data, err)
+	}
+	for _, name := range []string{"root-skill", "helper"} {
+		if s := f.readLock(t).Find(name); s == nil || s.Commit != commitA || s.Hash == "" {
+			t.Errorf("lock entry %s = %+v", name, s)
+		}
+	}
+}

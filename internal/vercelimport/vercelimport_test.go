@@ -182,9 +182,25 @@ func TestMapV3StripsSkillMdSuffix(t *testing.T) {
 	if got := byName["nested"].Path; got != "skills/nested" {
 		t.Errorf("nested path = %q, want skills/nested", got)
 	}
-	// A repo-root skill's SKILL.md strips to the empty subdirectory.
-	if got := byName["root"].Path; got != "" {
-		t.Errorf("root path = %q, want empty", got)
+	// A repo-root skill's SKILL.md strips to ".": the lock unambiguously
+	// named the root skill, and "." preserves that (an empty path would
+	// re-discover every skill in the repo).
+	if got := byName["root"].Path; got != "." {
+		t.Errorf("root path = %q, want \".\"", got)
+	}
+}
+
+func TestReadMissingVersionMessage(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "skills-lock.json")
+	if err := os.WriteFile(p, []byte(`{"skills": {}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Read(p)
+	if err == nil {
+		t.Fatal("want error for missing lock version")
+	}
+	if got := err.Error(); !containsAll(got, "missing or unsupported", "1 and 3") {
+		t.Errorf("error does not explain the missing version: %q", got)
 	}
 }
 

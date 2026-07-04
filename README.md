@@ -105,7 +105,9 @@ skiletto sync --global
   `npx skills` `skills-lock.json` (default: one in the current directory).
   Both the legacy version 1 and the current version 3 lock formats are read
   (version 3 records `skillPath` as the `SKILL.md` file, whose directory
-  import recovers). It maps each entry to a canonical git source (`github`
+  import recovers; a repo-root skill becomes path `.`, which pins the source
+  root itself even when the repo also contains nested skills). It maps each
+  entry to a canonical git source (`github`
   and `git` sourceTypes; `local` and `well-known` entries are reported with
   guidance instead), resolves the default-branch HEAD to a commit — Vercel's lock
   stores no ref or SHA, so HEAD is the best available pin — and installs and

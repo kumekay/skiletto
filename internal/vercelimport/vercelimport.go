@@ -59,7 +59,11 @@ func Read(path string) (*Lock, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	if lk.Version != 1 && lk.Version != 3 {
-		return nil, fmt.Errorf("%s: unsupported skills-lock.json version %d (skiletto import understands versions 1 and 3)", path, lk.Version)
+		what := fmt.Sprintf("unsupported skills-lock.json version %d", lk.Version)
+		if lk.Version == 0 {
+			what = "missing or unsupported skills-lock.json version"
+		}
+		return nil, fmt.Errorf("%s: %s (skiletto import understands versions 1 and 3)", path, what)
 	}
 	return &lk, nil
 }
@@ -120,10 +124,13 @@ func (lk *Lock) Map() (mapped []Mapped, failures []Failure) {
 }
 
 // stripSkillMd turns a v3 skillPath (which points at the SKILL.md file) into
-// the skill's subdirectory. A repo-root skill's "SKILL.md" strips to "".
+// the skill's subdirectory. A repo-root skill's "SKILL.md" strips to ".",
+// which pins the source root itself: the lock named the root skill
+// unambiguously, and an empty path would instead re-discover every skill
+// in the repo.
 func stripSkillMd(p string) string {
 	if p == "SKILL.md" {
-		return ""
+		return "."
 	}
 	return strings.TrimSuffix(p, "/SKILL.md")
 }
