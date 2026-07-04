@@ -126,6 +126,32 @@ skiletto sync --global
   prompting, skiletto fails with an actionable error listing the flags that
   script the choice. A set `CI` env var implies it.
 
+## Windows
+
+Linking a skill into a harness dir tries three strategies in order:
+
+1. **symlink** — works when Developer Mode is on (or the shell is elevated);
+2. **directory junction** — the normal Windows path, no privilege required;
+3. **copy** — a last resort when neither reparse point can be created.
+
+skiletto records nothing about which strategy it used: symlinks and junctions
+identify themselves, and a copy is recognized as skiletto's own only when its
+contents still hash-match the canonical `.agents/skills/<name>` tree. A copied
+link that has diverged is treated like any other local modification — `sync`,
+`update`, and `remove` refuse to overwrite or delete it without `--force`.
+
+Two consequences of the copy fallback:
+
+- A **pristine** copy — one that still matches the canonical tree — behaves
+  exactly like a symlink: `sync` re-links over it, `update` refreshes it in
+  place, `remove` deletes it, none of them need `--force`. Only a copy you
+  have edited by hand is refused without `--force`.
+- **Editable installs need a symlink or a junction** — a copy cannot stay
+  live. On a filesystem where only copying works, `skiletto add --editable`
+  fails with a clear message instead of silently installing a stale snapshot.
+
+On Linux and macOS the behavior is unchanged: skiletto symlinks, or fails.
+
 ## Development
 
 Requires Go 1.26+ and system git.

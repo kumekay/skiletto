@@ -23,7 +23,7 @@ func (e *Engine) Remove(name string, force bool) error {
 			}
 		}
 	}
-	if err := e.applyPrune(name); err != nil {
+	if err := e.applyPrune(name, force); err != nil {
 		return err
 	}
 	delete(m.Skills, name)

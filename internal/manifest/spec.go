@@ -19,6 +19,9 @@ type SourceSpec struct {
 
 var shorthandRe = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
 
+// winPathRe matches a Windows drive-letter path (C:\... or C:/...).
+var winPathRe = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
+
 // ParseSourceSpec parses a CLI source spec, splitting off the //subdir and
 // @ref parts and expanding the owner/repo shorthand to a full GitHub URL.
 func ParseSourceSpec(spec string) (SourceSpec, error) {
@@ -77,5 +80,6 @@ func isPathSource(source string) bool {
 		strings.HasPrefix(source, "./") ||
 		strings.HasPrefix(source, "../") ||
 		source == "." || source == ".." ||
-		strings.HasPrefix(source, "~/") || source == "~"
+		strings.HasPrefix(source, "~/") || source == "~" ||
+		strings.HasPrefix(source, `\\`) || winPathRe.MatchString(source)
 }

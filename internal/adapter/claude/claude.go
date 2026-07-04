@@ -31,17 +31,22 @@ func (Claude) SkillsDir(s scope.Scope) string {
 	return filepath.Join(s.Root, ".claude", "skills")
 }
 
-// Link symlinks target as <skills dir>/<name>, preferring a relative
-// target so the repository can be moved.
-func (c Claude) Link(s scope.Scope, name, target string) error {
+// Link makes target visible as <skills dir>/<name>, preferring a relative
+// target so the repository can be moved. It uses the shared link helper's
+// full fallback chain (symlink, then a junction and finally a copy on
+// Windows); force replaces a copy that has diverged.
+func (c Claude) Link(s scope.Scope, name, target string, force bool) error {
 	link := filepath.Join(c.SkillsDir(s), name)
 	if rel, err := filepath.Rel(filepath.Dir(link), target); err == nil {
 		target = rel
 	}
-	return adapter.Symlink(link, target)
+	_, err := adapter.LinkDir(link, target, force)
+	return err
 }
 
-// Unlink removes the symlink for name.
-func (c Claude) Unlink(s scope.Scope, name string) error {
-	return adapter.RemoveLink(filepath.Join(c.SkillsDir(s), name))
+// Unlink removes the link for name: a symlink, a junction, or a copy that
+// matches the canonical skill directory (with force, also a diverged copy).
+// A foreign directory is left alone.
+func (c Claude) Unlink(s scope.Scope, name string, force bool) error {
+	return adapter.RemoveLinkOrCopy(filepath.Join(c.SkillsDir(s), name), s.SkillDir(name), force)
 }

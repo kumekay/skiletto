@@ -29,7 +29,7 @@ func TestLinkAndUnlink(t *testing.T) {
 	}
 
 	a := New()
-	if err := a.Link(s, "pdf", canonical); err != nil {
+	if err := a.Link(s, "pdf", canonical, false); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(root, ".claude", "skills", "pdf")
@@ -49,7 +49,7 @@ func TestLinkAndUnlink(t *testing.T) {
 		t.Errorf("linked content = %q", data)
 	}
 
-	if err := a.Unlink(s, "pdf"); err != nil {
+	if err := a.Unlink(s, "pdf", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(link); !os.IsNotExist(err) {
@@ -65,7 +65,7 @@ func TestLinkIsRelativeWithinRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := New()
-	if err := a.Link(s, "pdf", canonical); err != nil {
+	if err := a.Link(s, "pdf", canonical, false); err != nil {
 		t.Fatal(err)
 	}
 	target, err := os.Readlink(filepath.Join(root, ".claude", "skills", "pdf"))

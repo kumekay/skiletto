@@ -71,12 +71,12 @@ func newFakeAdapter() *fakeAdapter {
 func (a *fakeAdapter) Name() string                   { return "fake" }
 func (a *fakeAdapter) SkillsDir(s scope.Scope) string { return filepath.Join(s.Root, ".fake") }
 
-func (a *fakeAdapter) Link(s scope.Scope, name, target string) error {
+func (a *fakeAdapter) Link(s scope.Scope, name, target string, force bool) error {
 	a.links[name] = target
 	return nil
 }
 
-func (a *fakeAdapter) Unlink(s scope.Scope, name string) error {
+func (a *fakeAdapter) Unlink(s scope.Scope, name string, force bool) error {
 	delete(a.links, name)
 	return nil
 }
@@ -719,10 +719,10 @@ type failingAdapter struct{}
 
 func (failingAdapter) Name() string                   { return "failing" }
 func (failingAdapter) SkillsDir(s scope.Scope) string { return filepath.Join(s.Root, ".failing") }
-func (failingAdapter) Link(s scope.Scope, name, target string) error {
+func (failingAdapter) Link(s scope.Scope, name, target string, force bool) error {
 	return fmt.Errorf("link refused")
 }
-func (failingAdapter) Unlink(s scope.Scope, name string) error { return nil }
+func (failingAdapter) Unlink(s scope.Scope, name string, force bool) error { return nil }
 
 // Finding 5: each sync failure is reported exactly once (in the streamed
 // warnings, not repeated in the returned error).

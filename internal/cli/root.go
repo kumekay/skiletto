@@ -57,17 +57,25 @@ func engineFor(cmd *cobra.Command, global bool) (*engine.Engine, error) {
 }
 
 // resolveScope maps the --global flag to a scope, reading the home and
-// config dirs from the environment (HOME / XDG_CONFIG_HOME on Linux) so
-// the machine scope can be redirected in tests and by end users.
+// config dirs from the environment (HOME / XDG_CONFIG_HOME) so the machine
+// scope can be redirected in tests and by end users. The env is honored on
+// every platform; where it is unset the OS defaults apply (%USERPROFILE% and
+// %AppData% on Windows, ~ and ~/.config on Linux).
 func resolveScope(global bool) (scope.Scope, error) {
 	if global {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return scope.Scope{}, err
+		home := os.Getenv("HOME")
+		if home == "" {
+			var err error
+			if home, err = os.UserHomeDir(); err != nil {
+				return scope.Scope{}, err
+			}
 		}
-		config, err := os.UserConfigDir()
-		if err != nil {
-			return scope.Scope{}, err
+		config := os.Getenv("XDG_CONFIG_HOME")
+		if config == "" {
+			var err error
+			if config, err = os.UserConfigDir(); err != nil {
+				return scope.Scope{}, err
+			}
 		}
 		return scope.Machine(home, config), nil
 	}

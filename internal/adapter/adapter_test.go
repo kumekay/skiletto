@@ -86,10 +86,10 @@ func TestRegistry(t *testing.T) {
 
 type fake struct{ name string }
 
-func (f fake) Name() string                                  { return f.name }
-func (f fake) SkillsDir(s scope.Scope) string                { return s.Root }
-func (f fake) Link(s scope.Scope, name, target string) error { return nil }
-func (f fake) Unlink(s scope.Scope, name string) error       { return nil }
+func (f fake) Name() string                                              { return f.name }
+func (f fake) SkillsDir(s scope.Scope) string                            { return s.Root }
+func (f fake) Link(s scope.Scope, name, target string, force bool) error { return nil }
+func (f fake) Unlink(s scope.Scope, name string, force bool) error       { return nil }
 
 func swapRegistry(t *testing.T) func() {
 	t.Helper()

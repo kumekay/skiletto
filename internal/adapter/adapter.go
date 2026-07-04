@@ -7,8 +7,6 @@ package adapter
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 
 	"github.com/kumekay/skiletto/internal/scope"
@@ -21,9 +19,12 @@ type Adapter interface {
 	// SkillsDir is where the harness looks for skills in the given scope.
 	SkillsDir(s scope.Scope) string
 	// Link makes the skill at target visible to the harness under name.
-	Link(s scope.Scope, name, target string) error
+	// force additionally replaces a copy-linked install that has diverged
+	// from its canonical tree (a local modification).
+	Link(s scope.Scope, name, target string, force bool) error
 	// Unlink removes the harness link for name. Missing links are no-ops.
-	Unlink(s scope.Scope, name string) error
+	// force additionally removes a diverged copy-linked install.
+	Unlink(s scope.Scope, name string, force bool) error
 }
 
 var registry = map[string]Adapter{}
@@ -49,45 +50,25 @@ func All() []Adapter {
 
 // NotASymlinkError reports a link location occupied by something other
 // than a symlink (e.g. a real skill directory installed by another tool),
-// which skiletto never replaces.
+// which skiletto never replaces. Hint carries platform guidance (Windows
+// copy links) and is empty on unix, keeping the message unchanged there.
 type NotASymlinkError struct {
 	Path string
+	Hint string
 }
 
 func (e *NotASymlinkError) Error() string {
-	return fmt.Sprintf("%s exists and is not a symlink; refusing to replace it", e.Path)
+	return fmt.Sprintf("%s exists and is not a symlink; refusing to replace it%s", e.Path, e.Hint)
 }
 
-// Symlink creates (or replaces) a symlink at link pointing to target,
-// creating parent directories as needed. It refuses to replace anything
-// that is not a symlink.
-func Symlink(link, target string) error {
-	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		return err
-	}
-	if fi, err := os.Lstat(link); err == nil {
-		if fi.Mode()&os.ModeSymlink == 0 {
-			return &NotASymlinkError{Path: link}
-		}
-		if err := os.Remove(link); err != nil {
-			return err
-		}
-	}
-	return os.Symlink(target, link)
+// NotOurLinkError reports a harness link location occupied by something
+// skiletto cannot prove it created — a foreign directory, or on Windows a
+// copy-linked install that diverged — which it refuses to remove.
+type NotOurLinkError struct {
+	Path string
+	Hint string
 }
 
-// RemoveLink removes the symlink at link. A missing link is a no-op;
-// anything that is not a symlink is left alone with an error.
-func RemoveLink(link string) error {
-	fi, err := os.Lstat(link)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if fi.Mode()&os.ModeSymlink == 0 {
-		return fmt.Errorf("%s is not a symlink; refusing to remove it", link)
-	}
-	return os.Remove(link)
+func (e *NotOurLinkError) Error() string {
+	return fmt.Sprintf("%s is not a skiletto link; refusing to remove it%s", e.Path, e.Hint)
 }
