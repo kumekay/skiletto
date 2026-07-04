@@ -152,6 +152,7 @@ func TestMapV3StripsSkillMdSuffix(t *testing.T) {
 	lk := &Lock{Version: 3, Skills: map[string]Entry{
 		"nested": {Source: "o/r", SourceType: "github", SkillPath: "skills/nested/SKILL.md"},
 		"root":   {Source: "o/r", SourceType: "github", SkillPath: "SKILL.md"},
+		"plain":  {Source: "o/r", SourceType: "github", SkillPath: "skills/plain"},
 	}}
 	mapped, failures := lk.Map()
 	if len(failures) != 0 {
@@ -163,6 +164,11 @@ func TestMapV3StripsSkillMdSuffix(t *testing.T) {
 	}
 	if got := byName["nested"].Path; got != "skills/nested" {
 		t.Errorf("nested path = %q, want skills/nested", got)
+	}
+	// Vercel documents skillPath as "Path to skill folder or SKILL.md":
+	// a folder-style value passes through untouched.
+	if got := byName["plain"].Path; got != "skills/plain" {
+		t.Errorf("plain path = %q, want skills/plain", got)
 	}
 	// A repo-root skill's SKILL.md strips to ".": the lock unambiguously
 	// named the root skill, and "." preserves that (an empty path would
