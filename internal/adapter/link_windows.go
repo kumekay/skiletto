@@ -159,6 +159,11 @@ func IsOwnLink(skillsDir, path string) bool {
 		return false
 	}
 	if fi.IsDir() {
+		// A real directory sitting directly in the canonical skills dir is a
+		// materialized skill (or a stray), never an adapter copy-link.
+		if filepath.Clean(filepath.Dir(path)) == filepath.Clean(skillsDir) {
+			return false
+		}
 		return dirsMatch(path, canonical)
 	}
 	return false

@@ -72,6 +72,9 @@ func (s *Path) Fetch(commit, subpath, dest string) error {
 
 var scpLikeRe = regexp.MustCompile(`^[^/@]+@[^/:]+:`)
 
+// winPathRe matches a Windows drive-letter path (C:\... or C:/...).
+var winPathRe = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
+
 // IsLocalPath reports whether a canonical source string refers to the
 // local filesystem rather than a remote repository.
 func IsLocalPath(src string) bool {
@@ -82,7 +85,8 @@ func IsLocalPath(src string) bool {
 		strings.HasPrefix(src, "./") ||
 		strings.HasPrefix(src, "../") ||
 		src == "." || src == ".." ||
-		strings.HasPrefix(src, "~/") || src == "~"
+		strings.HasPrefix(src, "~/") || src == "~" ||
+		strings.HasPrefix(src, `\\`) || winPathRe.MatchString(src)
 }
 
 // ExpandHome expands a leading ~ to the user's home directory.

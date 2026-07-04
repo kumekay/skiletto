@@ -129,6 +129,14 @@ func TestParseSourceSpec(t *testing.T) {
 			"../relative",
 			SourceSpec{Source: "../relative", IsPath: true},
 		},
+		{
+			`C:\Users\me\skills//my-skill`,
+			SourceSpec{Source: `C:\Users\me\skills`, Path: "my-skill", IsPath: true},
+		},
+		{
+			"C:/Users/me/skills//my-skill",
+			SourceSpec{Source: "C:/Users/me/skills", Path: "my-skill", IsPath: true},
+		},
 	}
 	for _, c := range cases {
 		got, err := ParseSourceSpec(c.spec)

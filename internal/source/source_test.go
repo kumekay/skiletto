@@ -53,6 +53,9 @@ func TestIsLocalPath(t *testing.T) {
 		"./rel":                                  true,
 		"../rel":                                 true,
 		"~/p/my-skills":                          true,
+		`C:\Users\me\skills`:                     true,
+		"C:/Users/me/skills":                     true,
+		`\\host\share\skills`:                    true,
 	}
 	for src, want := range cases {
 		if got := IsLocalPath(src); got != want {

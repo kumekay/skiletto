@@ -71,17 +71,18 @@ func createLink(link, target string, allowCopy bool) (LinkStrategy, error) {
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		return "", err
 	}
-	if err := clearExisting(link, target); err != nil {
+	if err := clearExisting(link, target, allowCopy); err != nil {
 		return "", err
 	}
 	return runLinkChain(link, target, linkSteps(allowCopy))
 }
 
 // clearExisting removes whatever already sits at link if it is provably
-// ours: a symlink or junction, or a copy whose contents match target (the
-// canonical tree). A foreign real directory yields NotASymlinkError and is
-// never touched. A missing entry is fine.
-func clearExisting(link, target string) error {
+// ours: a symlink or junction, or — only when allowCopy is set (the copy
+// fallback path) — a copy whose contents match target (the canonical tree).
+// A foreign real directory yields NotASymlinkError and is never touched. A
+// missing entry is fine.
+func clearExisting(link, target string, allowCopy bool) error {
 	fi, err := os.Lstat(link)
 	if os.IsNotExist(err) {
 		return nil
@@ -96,7 +97,7 @@ func clearExisting(link, target string) error {
 	if isLink {
 		return os.Remove(link)
 	}
-	if fi.IsDir() && ourCopy(link, target) {
+	if allowCopy && fi.IsDir() && ourCopy(link, target) {
 		return os.RemoveAll(link)
 	}
 	return &NotASymlinkError{Path: link}
