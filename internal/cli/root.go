@@ -13,12 +13,18 @@ import (
 	"github.com/kumekay/skiletto/internal/scope"
 )
 
+// version is the build version, reported by `skiletto --version`. It
+// defaults to "dev" and is overridden at release time via -ldflags
+// "-X github.com/kumekay/skiletto/internal/cli.version=<tag>".
+var version = "dev"
+
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "skiletto",
 		Short: "Package manager for agent skills",
 		Long: "skiletto installs agent skills from git repositories, " +
 			"pinning them to exact commits for reproducible setups.",
+		Version:      version,
 		SilenceUsage: true,
 	}
 	cmd.AddCommand(newAddCmd())
