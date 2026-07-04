@@ -103,8 +103,11 @@ skiletto sync --global
   `unmanaged`. It only observes.
 - `import` bootstraps `skiletto.toml` and `skiletto.lock` from a Vercel
   `npx skills` `skills-lock.json` (default: one in the current directory).
-  It maps each entry to a canonical git source (`github` and `git`
-  sourceTypes), resolves the default-branch HEAD to a commit — Vercel's lock
+  Both the legacy version 1 and the current version 3 lock formats are read
+  (version 3 records `skillPath` as the `SKILL.md` file, whose directory
+  import recovers). It maps each entry to a canonical git source (`github`
+  and `git` sourceTypes; `local` and `well-known` entries are reported with
+  guidance instead), resolves the default-branch HEAD to a commit — Vercel's lock
   stores no ref or SHA, so HEAD is the best available pin — and installs and
   links each skill. Entries already in the manifest are skipped; entries that
   cannot be mapped or resolved are reported and cause a non-zero exit without
