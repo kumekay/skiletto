@@ -1,12 +1,13 @@
 name: Release
 
 # Runs on version tags (e.g. v0.1.0). goreleaser builds the binaries and
-# creates the GitHub release unconditionally. The npm and PyPI publish steps
-# are gated on their tokens being present as repository secrets:
+# creates the GitHub release unconditionally. PyPI publishes via trusted
+# publishing (OIDC), so it needs no secret and always runs on tag pushes.
+# The npm publish step is gated on its token being present as a repository
+# secret:
 #   - NPM_TOKEN   enables `npm publish`
-#   - PYPI_TOKEN  enables the wheel upload
-# Without a token, the corresponding publish step is skipped, not failed, so
-# the workflow stays green.
+# Without the token, the npm publish step is skipped, not failed, so the
+# workflow stays green.
 
 on:
   push:
@@ -65,8 +66,9 @@ jobs:
   pypi:
     needs: goreleaser
     runs-on: ubuntu-latest
-    env:
-      PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -91,10 +93,6 @@ jobs:
           done
           ls -l wheelhouse
       - name: Publish to PyPI
-        if: ${{ env.PYPI_TOKEN != '' }}
-        run: |
-          pip install --disable-pip-version-check twine
-          twine upload wheelhouse/*.whl
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: wheelhouse
