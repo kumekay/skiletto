@@ -20,6 +20,44 @@ var (
 	shaRe     = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
+// gitEnvBlocklist names GIT_* variables that pin git to a specific
+// repository, object store, or index. Git exports these into hook
+// environments (pre-push, pre-commit, ...), so when skiletto is invoked from
+// a hook an inherited value would silently retarget our git subprocesses at
+// the enclosing repository instead of the temp clone we set up via cmd.Dir.
+// We strip exactly the repo-targeting variables; auth and identity variables
+// (GIT_SSH*, GIT_ASKPASS, GIT_TERMINAL_PROMPT, GIT_CONFIG_*, GIT_AUTHOR_*,
+// GIT_COMMITTER_*) do not retarget the repo, so they are left untouched.
+var gitEnvBlocklist = map[string]struct{}{
+	"GIT_DIR":                          {},
+	"GIT_WORK_TREE":                    {},
+	"GIT_INDEX_FILE":                   {},
+	"GIT_COMMON_DIR":                   {},
+	"GIT_PREFIX":                       {},
+	"GIT_OBJECT_DIRECTORY":             {},
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES": {},
+}
+
+// Environ returns a copy of the current process environment with the
+// repo-targeting GIT_* variables (see gitEnvBlocklist) removed, suitable as
+// the Env of a git subprocess. It is exported so test fixtures that spawn
+// git directly can apply the same scrubbing.
+func Environ() []string {
+	src := os.Environ()
+	out := make([]string, 0, len(src))
+	for _, kv := range src {
+		name := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			name = kv[:i]
+		}
+		if _, blocked := gitEnvBlocklist[name]; blocked {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
 // Git runs system git commands. Capabilities are detected once in New.
 type Git struct {
 	version string
@@ -32,7 +70,9 @@ type Git struct {
 
 // New locates system git and detects its version and capabilities.
 func New() (*Git, error) {
-	out, err := exec.Command("git", "version").Output()
+	cmd := exec.Command("git", "version")
+	cmd.Env = Environ()
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("system git not found: %w", err)
 	}
@@ -55,6 +95,7 @@ func (g *Git) Version() string {
 func (g *Git) run(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	cmd.Env = Environ()
 	var errBuf strings.Builder
 	cmd.Stderr = &errBuf
 	out, err := cmd.Output()

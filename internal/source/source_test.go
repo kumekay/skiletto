@@ -21,7 +21,9 @@ func gitT(t *testing.T, dir string, args ...string) string {
 	if dir != "" {
 		base = append(base, "-C", dir)
 	}
-	out, err := exec.Command("git", append(base, args...)...).CombinedOutput()
+	cmd := exec.Command("git", append(base, args...)...)
+	cmd.Env = gitcli.Environ()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
@@ -103,5 +105,22 @@ func TestPathSourceNotAGitRepo(t *testing.T) {
 	src := New(g, dir)
 	if _, err := src.Resolve(""); err == nil {
 		t.Error("want error for non-git path source")
+	}
+}
+
+// TestPathSourceNotAGitRepoInheritedGitDir reproduces the git-hook false
+// failure: with GIT_DIR inherited from an enclosing repo, a non-git path
+// source must still report an error rather than resolving the hook's repo.
+func TestPathSourceNotAGitRepoInheritedGitDir(t *testing.T) {
+	real := t.TempDir()
+	gitT(t, "", "init", "-q", real)
+	gitT(t, real, "commit", "-q", "--allow-empty", "-m", "real")
+	t.Setenv("GIT_DIR", filepath.Join(real, ".git"))
+
+	dir := t.TempDir()
+	g, _ := gitcli.New()
+	src := New(g, dir)
+	if _, err := src.Resolve(""); err == nil {
+		t.Error("want error for non-git path source under inherited GIT_DIR")
 	}
 }
