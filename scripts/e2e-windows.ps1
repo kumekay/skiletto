@@ -137,3 +137,6 @@ Pop-Location
 Remove-Item Env:SKILETTO_NO_JUNCTION
 
 Write-Host "e2e-windows: OK"
+# The last native command above failed on purpose (the editable add); without
+# an explicit exit pwsh would propagate its $LASTEXITCODE as the step result.
+exit 0
