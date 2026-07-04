@@ -58,8 +58,15 @@ func Read(path string) (*Lock, error) {
 	if err := json.Unmarshal(data, &lk); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	if lk.Version != 1 {
-		return nil, fmt.Errorf("%s: unsupported skills-lock.json version %d (skiletto import understands version 1)", path, lk.Version)
+	// Only the current version 3 is accepted: Vercel wipes any lock with an
+	// older version and starts fresh, so older files are extinct on disk and
+	// their skillPath semantics are unverifiable.
+	if lk.Version != 3 {
+		what := fmt.Sprintf("unsupported skills-lock.json version %d", lk.Version)
+		if lk.Version == 0 {
+			what = "missing or unsupported skills-lock.json version"
+		}
+		return nil, fmt.Errorf("%s: %s (skiletto import understands version 3)", path, what)
 	}
 	return &lk, nil
 }
@@ -77,6 +84,10 @@ func (lk *Lock) Map() (mapped []Mapped, failures []Failure) {
 
 	for _, name := range names {
 		e := lk.Skills[name]
+		// The lock records skillPath as the SKILL.md file, not its directory;
+		// strip the trailing SKILL.md component to recover the skill
+		// subdirectory.
+		path := stripSkillMd(e.SkillPath)
 		switch e.SourceType {
 		case "github":
 			url, err := githubURL(e.Source)
@@ -84,7 +95,7 @@ func (lk *Lock) Map() (mapped []Mapped, failures []Failure) {
 				failures = append(failures, Failure{Name: name, Reason: err.Error()})
 				continue
 			}
-			mapped = append(mapped, Mapped{Name: name, Source: url, Path: e.SkillPath, Ref: e.Ref})
+			mapped = append(mapped, Mapped{Name: name, Source: url, Path: path, Ref: e.Ref})
 		case "git":
 			src := e.Source
 			if src == "" {
@@ -94,7 +105,12 @@ func (lk *Lock) Map() (mapped []Mapped, failures []Failure) {
 				failures = append(failures, Failure{Name: name, Reason: "git entry has no source URL"})
 				continue
 			}
-			mapped = append(mapped, Mapped{Name: name, Source: src, Path: e.SkillPath, Ref: e.Ref})
+			mapped = append(mapped, Mapped{Name: name, Source: src, Path: path, Ref: e.Ref})
+		case "local":
+			failures = append(failures, Failure{
+				Name:   name,
+				Reason: fmt.Sprintf("local skill cannot be imported from a git source; add it directly with 'skiletto add --editable %s' for live edits or 'skiletto add %s' for a pinned copy", e.Source, e.Source),
+			})
 		case "":
 			failures = append(failures, Failure{Name: name, Reason: "entry has no sourceType"})
 		default:
@@ -105,6 +121,18 @@ func (lk *Lock) Map() (mapped []Mapped, failures []Failure) {
 		}
 	}
 	return mapped, failures
+}
+
+// stripSkillMd turns a skillPath (which points at the SKILL.md file) into
+// the skill's subdirectory. A repo-root skill's "SKILL.md" strips to ".",
+// which pins the source root itself: the lock named the root skill
+// unambiguously, and an empty path would instead re-discover every skill
+// in the repo.
+func stripSkillMd(p string) string {
+	if p == "SKILL.md" {
+		return "."
+	}
+	return strings.TrimSuffix(p, "/SKILL.md")
 }
 
 // githubURL turns a Vercel "owner/repo" github source into a full clone URL.

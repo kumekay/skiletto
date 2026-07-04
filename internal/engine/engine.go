@@ -398,7 +398,9 @@ func (e *Engine) promote(staged, name string) error {
 }
 
 // stage fetches subpath at commit into a temporary directory under the
-// skills dir and locates the single skill within it.
+// skills dir and locates the single skill within it. An explicit "."
+// subpath pins the skill to the source root itself: SKILL.md must exist
+// there, and nested skills elsewhere in the source are not discovered.
 func (e *Engine) stage(src source.Source, commit, subpath string) (staged, effPath string, cleanup func(), err error) {
 	if err := os.MkdirAll(e.Scope.SkillsDir, 0o755); err != nil {
 		return "", "", nil, err
@@ -408,9 +410,20 @@ func (e *Engine) stage(src source.Source, commit, subpath string) (staged, effPa
 		return "", "", nil, err
 	}
 	cleanup = func() { _ = os.RemoveAll(staging) }
-	if err := src.Fetch(commit, subpath, staging); err != nil {
+	fetchPath := subpath
+	if subpath == "." {
+		fetchPath = ""
+	}
+	if err := src.Fetch(commit, fetchPath, staging); err != nil {
 		cleanup()
 		return "", "", nil, err
+	}
+	if subpath == "." {
+		if _, err := os.Stat(filepath.Join(staging, "SKILL.md")); err != nil {
+			cleanup()
+			return "", "", nil, fmt.Errorf("path is \".\" but the source root has no SKILL.md")
+		}
+		return staging, ".", cleanup, nil
 	}
 	dirs, err := skill.Discover(staging)
 	if err != nil {

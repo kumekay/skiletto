@@ -1,14 +1,15 @@
 package vercelimport
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestMapGithubEntries(t *testing.T) {
-	lk := &Lock{Skills: map[string]Entry{
-		"pdf": {Source: "anthropics/skills", SourceType: "github", SkillPath: "skills/pdf"},
+	lk := &Lock{Version: 3, Skills: map[string]Entry{
+		"pdf": {Source: "anthropics/skills", SourceType: "github", SkillPath: "skills/pdf/SKILL.md"},
 		"web": {Source: "vercel/ai", SourceType: "github", Ref: "v2"},
 	}}
 	mapped, failures := lk.Map()
@@ -31,8 +32,8 @@ func TestMapGithubEntries(t *testing.T) {
 }
 
 func TestMapGitEntryUsesRawSource(t *testing.T) {
-	lk := &Lock{Skills: map[string]Entry{
-		"a": {Source: "https://gitea.example.com/me/skills.git", SourceType: "git", SkillPath: "deploy"},
+	lk := &Lock{Version: 3, Skills: map[string]Entry{
+		"a": {Source: "https://gitea.example.com/me/skills.git", SourceType: "git", SkillPath: "deploy/SKILL.md"},
 		"b": {SourceType: "git", SourceURL: "ssh://git@host/x.git"},
 	}}
 	mapped, failures := lk.Map()
@@ -49,7 +50,7 @@ func TestMapGitEntryUsesRawSource(t *testing.T) {
 }
 
 func TestMapUnsupportedSourceTypesFail(t *testing.T) {
-	lk := &Lock{Skills: map[string]Entry{
+	lk := &Lock{Version: 3, Skills: map[string]Entry{
 		"local-one": {Source: "/x", SourceType: "local"},
 		"nm":        {Source: "pkg", SourceType: "node_modules"},
 		"wk":        {Source: "x", SourceType: "well-known"},
@@ -85,29 +86,6 @@ func TestReadMissingFileGuidance(t *testing.T) {
 	}
 }
 
-func TestReadRealFixture(t *testing.T) {
-	lk, err := Read(filepath.Join("testdata", "skills-lock.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	mapped, failures := lk.Map()
-	if len(failures) != 0 {
-		t.Fatalf("real fixture produced failures: %+v", failures)
-	}
-	// The real fixture is all github owner/repo entries.
-	byName := map[string]Mapped{}
-	for _, m := range mapped {
-		byName[m.Name] = m
-	}
-	got, ok := byName["ai-sdk"]
-	if !ok {
-		t.Fatalf("ai-sdk missing from %+v", mapped)
-	}
-	if got.Source != "https://github.com/vercel/ai" {
-		t.Errorf("ai-sdk source = %q", got.Source)
-	}
-}
-
 func containsAll(s string, subs ...string) bool {
 	for _, sub := range subs {
 		found := false
@@ -124,16 +102,114 @@ func containsAll(s string, subs ...string) bool {
 	return true
 }
 
-func TestReadRejectsUnknownVersion(t *testing.T) {
+func TestReadRejectsOldVersions(t *testing.T) {
+	// Only version 3 is accepted: Vercel wipes any lock with version < 3 and
+	// starts fresh, so v1 and v2 files are extinct on disk, and their
+	// skillPath semantics are unverifiable.
+	for _, v := range []int{1, 2} {
+		p := filepath.Join(t.TempDir(), "skills-lock.json")
+		body := fmt.Sprintf(`{"version": %d, "skills": {}}`, v)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Read(p)
+		if err == nil {
+			t.Fatalf("want error for lock version %d", v)
+		}
+		if got := err.Error(); !containsAll(got, fmt.Sprintf("version %d", v), "understands version 3") {
+			t.Errorf("error does not name version %d and the understood version: %q", v, got)
+		}
+	}
+}
+
+func TestReadAcceptsVersion3(t *testing.T) {
+	lk, err := Read(filepath.Join("testdata", "skills-lock-v3.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lk.Version != 3 {
+		t.Fatalf("version = %d, want 3", lk.Version)
+	}
+	mapped, failures := lk.Map()
+	if len(failures) != 0 {
+		t.Fatalf("v3 fixture produced failures: %+v", failures)
+	}
+	byName := map[string]Mapped{}
+	for _, m := range mapped {
+		byName[m.Name] = m
+	}
+	// github entry: owner/repo expanded, SKILL.md stripped to its directory.
+	if got := byName["agent-browser"]; got.Source != "https://github.com/vercel-labs/agent-browser" || got.Path != "skills/agent-browser" {
+		t.Errorf("agent-browser = %+v", got)
+	}
+	// git entry: raw source, SKILL.md stripped.
+	if got := byName["using-clikunja"]; got.Source != "git@github.com:kumekay/clikunja.git" || got.Path != "using-clikunja" {
+		t.Errorf("using-clikunja = %+v", got)
+	}
+}
+
+func TestMapV3StripsSkillMdSuffix(t *testing.T) {
+	lk := &Lock{Version: 3, Skills: map[string]Entry{
+		"nested": {Source: "o/r", SourceType: "github", SkillPath: "skills/nested/SKILL.md"},
+		"root":   {Source: "o/r", SourceType: "github", SkillPath: "SKILL.md"},
+		"plain":  {Source: "o/r", SourceType: "github", SkillPath: "skills/plain"},
+	}}
+	mapped, failures := lk.Map()
+	if len(failures) != 0 {
+		t.Fatalf("unexpected failures: %+v", failures)
+	}
+	byName := map[string]Mapped{}
+	for _, m := range mapped {
+		byName[m.Name] = m
+	}
+	if got := byName["nested"].Path; got != "skills/nested" {
+		t.Errorf("nested path = %q, want skills/nested", got)
+	}
+	// Vercel documents skillPath as "Path to skill folder or SKILL.md":
+	// a folder-style value passes through untouched.
+	if got := byName["plain"].Path; got != "skills/plain" {
+		t.Errorf("plain path = %q, want skills/plain", got)
+	}
+	// A repo-root skill's SKILL.md strips to ".": the lock unambiguously
+	// named the root skill, and "." preserves that (an empty path would
+	// re-discover every skill in the repo).
+	if got := byName["root"].Path; got != "." {
+		t.Errorf("root path = %q, want \".\"", got)
+	}
+}
+
+func TestReadMissingVersionMessage(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "skills-lock.json")
-	if err := os.WriteFile(p, []byte(`{"version": 2, "skills": {}}`), 0o644); err != nil {
+	if err := os.WriteFile(p, []byte(`{"skills": {}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Read(p)
 	if err == nil {
-		t.Fatal("want error for unknown lock version")
+		t.Fatal("want error for missing lock version")
 	}
-	if got := err.Error(); !containsAll(got, "version 2") {
-		t.Errorf("error does not name the version: %q", got)
+	if got := err.Error(); !containsAll(got, "missing or unsupported", "understands version 3") {
+		t.Errorf("error does not explain the missing version: %q", got)
+	}
+}
+
+func TestMapLocalAndWellKnownFail(t *testing.T) {
+	lk := &Lock{Version: 3, Skills: map[string]Entry{
+		"local-skill": {Source: "/home/me/skills/thing", SourceType: "local", SkillPath: "SKILL.md"},
+		"wk":          {Source: "some/thing", SourceType: "well-known", SkillPath: "SKILL.md"},
+	}}
+	mapped, failures := lk.Map()
+	if len(mapped) != 0 {
+		t.Fatalf("nothing should map: %+v", mapped)
+	}
+	byName := map[string]Failure{}
+	for _, f := range failures {
+		byName[f.Name] = f
+	}
+	// local failure points the user at skiletto add.
+	if r := byName["local-skill"].Reason; !containsAll(r, "skiletto add", "/home/me/skills/thing") {
+		t.Errorf("local reason lacks guidance: %q", r)
+	}
+	if byName["wk"].Reason == "" {
+		t.Errorf("well-known failure has no reason")
 	}
 }
