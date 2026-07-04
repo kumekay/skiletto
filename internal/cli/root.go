@@ -27,6 +27,8 @@ func newRootCmd() *cobra.Command {
 		Version:      version,
 		SilenceUsage: true,
 	}
+	cmd.PersistentFlags().Bool("no-input", false,
+		"never prompt; where a prompt would appear, fail with an actionable error listing the flags to script the choice (implied when the CI env var is set)")
 	cmd.AddCommand(newAddCmd())
 	cmd.AddCommand(newSyncCmd())
 	cmd.AddCommand(newUpdateCmd())

@@ -95,7 +95,7 @@ func TestAddMultiSkillListsChoices(t *testing.T) {
 	repo := makeSkillRepo(t, "pdf", "web")
 	t.Chdir(t.TempDir())
 
-	_, _, err := run(t, "add", repo)
+	_, _, err := run(t, "add", "--no-input", repo)
 	if err == nil {
 		t.Fatal("want error for ambiguous source")
 	}
