@@ -90,6 +90,7 @@ func (e *Engine) AddAll(spec manifest.SourceSpec, editable bool) error {
 	if err := validateAdd(spec, editable); err != nil {
 		return err
 	}
+	e.warnPathSource(spec)
 	subpaths, err := e.discover(spec, editable)
 	if err != nil {
 		return err
@@ -105,7 +106,6 @@ func (e *Engine) addSubpaths(spec manifest.SourceSpec, subpaths []string, editab
 	if err != nil {
 		return err
 	}
-	e.warnPathSource(spec)
 	added, failures := 0, 0
 	for _, sub := range subpaths {
 		s := spec

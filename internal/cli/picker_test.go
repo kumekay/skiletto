@@ -77,6 +77,22 @@ func TestAddMultiSelectInstallsChosen(t *testing.T) {
 	}
 }
 
+func TestAddMultiSelectWarnsPortabilityOnce(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf", "web")
+	project := t.TempDir()
+	t.Chdir(project)
+
+	setPrompter(t, &recordingPrompter{ret: []string{"skills/pdf", "skills/web"}})
+
+	_, stderr, err := run(t, "add", repo)
+	if err != nil {
+		t.Fatalf("add: %v\n%s", err, stderr)
+	}
+	if n := strings.Count(stderr, "machine-specific path"); n != 1 {
+		t.Errorf("portability warning appeared %d times, want 1:\n%s", n, stderr)
+	}
+}
+
 func TestAddMultiSelectNothingChosenErrors(t *testing.T) {
 	repo := makeSkillRepo(t, "pdf", "web")
 	project := t.TempDir()
