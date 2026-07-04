@@ -20,6 +20,7 @@ import argparse
 import base64
 import hashlib
 import os
+import re
 import sys
 import zipfile
 
@@ -37,6 +38,33 @@ SUMMARY = "Package manager for agent skills"
 LAUNCHER_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skiletto")
 
 
+# Git-tag prerelease labels -> PEP 440 prerelease segments.
+_PRERELEASE_SEGMENTS = {"rc": "rc", "beta": "b", "alpha": "a"}
+
+
+def normalize_version(version: str) -> str:
+    """Normalize a git-tag version (without the leading v) to PEP 440.
+
+    Plain releases pass through (0.1.0). Common prerelease forms map to
+    their PEP 440 spelling: 0.1.0-rc1 / 0.1.0-rc.1 -> 0.1.0rc1,
+    -beta.N -> bN, -alpha.N -> aN. Anything else fails loudly rather than
+    producing a wheel pip would reject.
+    """
+    m = re.fullmatch(
+        r"(\d+(?:\.\d+)*)(?:-(rc|beta|alpha)\.?(\d+))?",
+        version,
+    )
+    if m is None:
+        raise ValueError(
+            "cannot normalize version %r to PEP 440; expected X.Y.Z with an "
+            "optional -rcN / -beta.N / -alpha.N prerelease suffix" % version
+        )
+    release, label, number = m.groups()
+    if label is None:
+        return release
+    return "%s%s%s" % (release, _PRERELEASE_SEGMENTS[label], number)
+
+
 def _record_line(arcname: str, data: bytes) -> str:
     digest = hashlib.sha256(data).digest()
     b64 = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
@@ -44,6 +72,10 @@ def _record_line(arcname: str, data: bytes) -> str:
 
 
 def build(version: str, goos: str, goarch: str, binary: str, outdir: str) -> str:
+    try:
+        version = normalize_version(version)
+    except ValueError as err:
+        raise SystemExit(str(err))
     tag = PLATFORM_TAGS.get((goos, goarch))
     if tag is None:
         raise SystemExit("unsupported os/arch: %s/%s" % (goos, goarch))
@@ -102,7 +134,12 @@ def build(version: str, goos: str, goarch: str, binary: str, outdir: str) -> str
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", required=True)
+    parser.add_argument(
+        "--version",
+        required=True,
+        help="release version (git tag without the leading v); "
+        "normalized to PEP 440, e.g. 0.1.0-rc1 -> 0.1.0rc1",
+    )
     parser.add_argument("--os", dest="goos", required=True)
     parser.add_argument("--arch", dest="goarch", required=True)
     parser.add_argument("--binary", required=True, help="path to the prebuilt binary")
