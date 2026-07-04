@@ -58,12 +58,15 @@ func Read(path string) (*Lock, error) {
 	if err := json.Unmarshal(data, &lk); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	if lk.Version != 1 && lk.Version != 3 {
+	// Only the current version 3 is accepted: Vercel wipes any lock with an
+	// older version and starts fresh, so older files are extinct on disk and
+	// their skillPath semantics are unverifiable.
+	if lk.Version != 3 {
 		what := fmt.Sprintf("unsupported skills-lock.json version %d", lk.Version)
 		if lk.Version == 0 {
 			what = "missing or unsupported skills-lock.json version"
 		}
-		return nil, fmt.Errorf("%s: %s (skiletto import understands versions 1 and 3)", path, what)
+		return nil, fmt.Errorf("%s: %s (skiletto import understands version 3)", path, what)
 	}
 	return &lk, nil
 }
@@ -81,13 +84,10 @@ func (lk *Lock) Map() (mapped []Mapped, failures []Failure) {
 
 	for _, name := range names {
 		e := lk.Skills[name]
-		path := e.SkillPath
-		// v3 records skillPath as the SKILL.md file, not its directory; strip
-		// the trailing SKILL.md component to recover the skill subdirectory.
-		// v1 (and the zero value used in tests) records a directory already.
-		if lk.Version == 3 {
-			path = stripSkillMd(path)
-		}
+		// The lock records skillPath as the SKILL.md file, not its directory;
+		// strip the trailing SKILL.md component to recover the skill
+		// subdirectory.
+		path := stripSkillMd(e.SkillPath)
 		switch e.SourceType {
 		case "github":
 			url, err := githubURL(e.Source)
@@ -123,7 +123,7 @@ func (lk *Lock) Map() (mapped []Mapped, failures []Failure) {
 	return mapped, failures
 }
 
-// stripSkillMd turns a v3 skillPath (which points at the SKILL.md file) into
+// stripSkillMd turns a skillPath (which points at the SKILL.md file) into
 // the skill's subdirectory. A repo-root skill's "SKILL.md" strips to ".",
 // which pins the source root itself: the lock named the root skill
 // unambiguously, and an empty path would instead re-discover every skill

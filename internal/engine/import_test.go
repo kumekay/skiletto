@@ -22,9 +22,9 @@ func writeVercelLock(t *testing.T, dir, body string) string {
 func TestImportInstallsLocksAndLinks(t *testing.T) {
 	f := newFixture(t, pdfSource())
 	lock := writeVercelLock(t, t.TempDir(), `{
-		"version": 1,
+		"version": 3,
 		"skills": {
-			"pdf": {"source": "o/r", "sourceType": "github", "skillPath": "skills/pdf"}
+			"pdf": {"source": "o/r", "sourceType": "github", "skillPath": "skills/pdf/SKILL.md"}
 		}
 	}`)
 
@@ -64,9 +64,9 @@ func TestImportInstallsLocksAndLinks(t *testing.T) {
 func TestImportPartialReportsFailuresAndExitsNonZero(t *testing.T) {
 	f := newFixture(t, pdfSource())
 	lock := writeVercelLock(t, t.TempDir(), `{
-		"version": 1,
+		"version": 3,
 		"skills": {
-			"pdf":   {"source": "o/r", "sourceType": "github", "skillPath": "skills/pdf"},
+			"pdf":   {"source": "o/r", "sourceType": "github", "skillPath": "skills/pdf/SKILL.md"},
 			"local": {"source": "/somewhere", "sourceType": "local"},
 			"nm":    {"source": "pkg", "sourceType": "node_modules"}
 		}
@@ -102,9 +102,9 @@ func TestImportSkipsEntriesAlreadyInManifest(t *testing.T) {
 		"pdf": {Source: "https://github.com/existing/repo", Path: "skills/pdf"},
 	}})
 	lock := writeVercelLock(t, t.TempDir(), `{
-		"version": 1,
+		"version": 3,
 		"skills": {
-			"pdf": {"source": "o/r", "sourceType": "github", "skillPath": "skills/pdf"}
+			"pdf": {"source": "o/r", "sourceType": "github", "skillPath": "skills/pdf/SKILL.md"}
 		}
 	}`)
 
@@ -146,9 +146,9 @@ func TestImportRefusesToOverwriteDriftedOrphan(t *testing.T) {
 	}
 
 	lock := writeVercelLock(t, t.TempDir(), `{
-		"version": 1,
+		"version": 3,
 		"skills": {
-			"pdf": {"source": "o/r", "sourceType": "github", "skillPath": "skills/pdf"}
+			"pdf": {"source": "o/r", "sourceType": "github", "skillPath": "skills/pdf/SKILL.md"}
 		}
 	}`)
 	err := f.eng.Import(lock, false)
@@ -195,9 +195,9 @@ func TestImportRefusesToOverwriteUnmanagedTree(t *testing.T) {
 	}
 
 	lock := writeVercelLock(t, t.TempDir(), `{
-		"version": 1,
+		"version": 3,
 		"skills": {
-			"pdf": {"source": "o/r", "sourceType": "github", "skillPath": "skills/pdf"}
+			"pdf": {"source": "o/r", "sourceType": "github", "skillPath": "skills/pdf/SKILL.md"}
 		}
 	}`)
 	if err := f.eng.Import(lock, false); err == nil {
@@ -226,7 +226,7 @@ func TestImportMultiSkillEntryPointsAtSkillsLock(t *testing.T) {
 	}}
 	f := newFixture(t, src)
 	lock := writeVercelLock(t, t.TempDir(), `{
-		"version": 1,
+		"version": 3,
 		"skills": {
 			"tools": {"source": "o/r", "sourceType": "github"}
 		}

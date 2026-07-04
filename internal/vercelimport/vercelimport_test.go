@@ -1,14 +1,15 @@
 package vercelimport
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestMapGithubEntries(t *testing.T) {
-	lk := &Lock{Skills: map[string]Entry{
-		"pdf": {Source: "anthropics/skills", SourceType: "github", SkillPath: "skills/pdf"},
+	lk := &Lock{Version: 3, Skills: map[string]Entry{
+		"pdf": {Source: "anthropics/skills", SourceType: "github", SkillPath: "skills/pdf/SKILL.md"},
 		"web": {Source: "vercel/ai", SourceType: "github", Ref: "v2"},
 	}}
 	mapped, failures := lk.Map()
@@ -31,8 +32,8 @@ func TestMapGithubEntries(t *testing.T) {
 }
 
 func TestMapGitEntryUsesRawSource(t *testing.T) {
-	lk := &Lock{Skills: map[string]Entry{
-		"a": {Source: "https://gitea.example.com/me/skills.git", SourceType: "git", SkillPath: "deploy"},
+	lk := &Lock{Version: 3, Skills: map[string]Entry{
+		"a": {Source: "https://gitea.example.com/me/skills.git", SourceType: "git", SkillPath: "deploy/SKILL.md"},
 		"b": {SourceType: "git", SourceURL: "ssh://git@host/x.git"},
 	}}
 	mapped, failures := lk.Map()
@@ -49,7 +50,7 @@ func TestMapGitEntryUsesRawSource(t *testing.T) {
 }
 
 func TestMapUnsupportedSourceTypesFail(t *testing.T) {
-	lk := &Lock{Skills: map[string]Entry{
+	lk := &Lock{Version: 3, Skills: map[string]Entry{
 		"local-one": {Source: "/x", SourceType: "local"},
 		"nm":        {Source: "pkg", SourceType: "node_modules"},
 		"wk":        {Source: "x", SourceType: "well-known"},
@@ -85,29 +86,6 @@ func TestReadMissingFileGuidance(t *testing.T) {
 	}
 }
 
-func TestReadRealFixture(t *testing.T) {
-	lk, err := Read(filepath.Join("testdata", "skills-lock.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	mapped, failures := lk.Map()
-	if len(failures) != 0 {
-		t.Fatalf("real fixture produced failures: %+v", failures)
-	}
-	// The real fixture is all github owner/repo entries.
-	byName := map[string]Mapped{}
-	for _, m := range mapped {
-		byName[m.Name] = m
-	}
-	got, ok := byName["ai-sdk"]
-	if !ok {
-		t.Fatalf("ai-sdk missing from %+v", mapped)
-	}
-	if got.Source != "https://github.com/vercel/ai" {
-		t.Errorf("ai-sdk source = %q", got.Source)
-	}
-}
-
 func containsAll(s string, subs ...string) bool {
 	for _, sub := range subs {
 		found := false
@@ -124,19 +102,23 @@ func containsAll(s string, subs ...string) bool {
 	return true
 }
 
-func TestReadRejectsUnknownVersion(t *testing.T) {
-	// v2 is rejected: Vercel wipes any lock with version < 3, so no v2 file
-	// survives on disk to import, and its skillPath semantics are unverifiable.
-	p := filepath.Join(t.TempDir(), "skills-lock.json")
-	if err := os.WriteFile(p, []byte(`{"version": 2, "skills": {}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Read(p)
-	if err == nil {
-		t.Fatal("want error for unknown lock version")
-	}
-	if got := err.Error(); !containsAll(got, "version 2", "1 and 3") {
-		t.Errorf("error does not name the version and the understood versions: %q", got)
+func TestReadRejectsOldVersions(t *testing.T) {
+	// Only version 3 is accepted: Vercel wipes any lock with version < 3 and
+	// starts fresh, so v1 and v2 files are extinct on disk, and their
+	// skillPath semantics are unverifiable.
+	for _, v := range []int{1, 2} {
+		p := filepath.Join(t.TempDir(), "skills-lock.json")
+		body := fmt.Sprintf(`{"version": %d, "skills": {}}`, v)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Read(p)
+		if err == nil {
+			t.Fatalf("want error for lock version %d", v)
+		}
+		if got := err.Error(); !containsAll(got, fmt.Sprintf("version %d", v), "understands version 3") {
+			t.Errorf("error does not name version %d and the understood version: %q", v, got)
+		}
 	}
 }
 
@@ -199,20 +181,8 @@ func TestReadMissingVersionMessage(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error for missing lock version")
 	}
-	if got := err.Error(); !containsAll(got, "missing or unsupported", "1 and 3") {
+	if got := err.Error(); !containsAll(got, "missing or unsupported", "understands version 3") {
 		t.Errorf("error does not explain the missing version: %q", got)
-	}
-}
-
-func TestMapV1DoesNotStripDirectoryPath(t *testing.T) {
-	// v1 skillPath is a directory; it must not be mangled even if it looks
-	// suffix-like. Version 0 (zero value) is treated as v1 semantics.
-	lk := &Lock{Version: 1, Skills: map[string]Entry{
-		"pdf": {Source: "anthropics/skills", SourceType: "github", SkillPath: "skills/pdf"},
-	}}
-	mapped, _ := lk.Map()
-	if mapped[0].Path != "skills/pdf" {
-		t.Errorf("v1 path = %q, want skills/pdf unchanged", mapped[0].Path)
 	}
 }
 

@@ -11,7 +11,7 @@ import (
 // writeLockJSON serializes a Vercel-shaped skills-lock.json into dir.
 func writeLockJSON(t *testing.T, dir string, skills map[string]map[string]string) string {
 	t.Helper()
-	doc := map[string]any{"version": 1, "skills": skills}
+	doc := map[string]any{"version": 3, "skills": skills}
 	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +37,7 @@ func TestImportEndToEnd(t *testing.T) {
 		"pdf": {
 			"source":     repo,
 			"sourceType": "git",
-			"skillPath":  "skills/pdf",
+			"skillPath":  "skills/pdf/SKILL.md",
 		},
 		"gone": {
 			"source":     filepath.Join(t.TempDir(), "does-not-exist"),
@@ -100,7 +100,7 @@ func TestImportGlobalScope(t *testing.T) {
 	t.Chdir(project)
 
 	writeLockJSON(t, project, map[string]map[string]string{
-		"pdf": {"source": repo, "sourceType": "git", "skillPath": "skills/pdf"},
+		"pdf": {"source": repo, "sourceType": "git", "skillPath": "skills/pdf/SKILL.md"},
 	})
 
 	if _, stderr, err := run(t, "import", "--global"); err != nil {
@@ -144,7 +144,7 @@ func TestImportHintsOnPreexistingClaudeSkillDir(t *testing.T) {
 	}
 
 	writeLockJSON(t, project, map[string]map[string]string{
-		"pdf": {"source": repo, "sourceType": "git", "skillPath": "skills/pdf"},
+		"pdf": {"source": repo, "sourceType": "git", "skillPath": "skills/pdf/SKILL.md"},
 	})
 
 	_, stderr, err := run(t, "import")
@@ -180,7 +180,7 @@ func TestImportForceFlag(t *testing.T) {
 	}
 
 	writeLockJSON(t, project, map[string]map[string]string{
-		"pdf": {"source": repo, "sourceType": "git", "skillPath": "skills/pdf"},
+		"pdf": {"source": repo, "sourceType": "git", "skillPath": "skills/pdf/SKILL.md"},
 	})
 
 	if _, _, err := run(t, "import"); err == nil {
