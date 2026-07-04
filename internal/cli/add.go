@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -44,6 +46,9 @@ func newAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := absolutizePathSource(&spec); err != nil {
+				return err
+			}
 			if all && spec.Path != "" {
 				return fmt.Errorf("--all installs every skill in the source and cannot be combined with an explicit //path (%q)", spec.Path)
 			}
@@ -82,6 +87,30 @@ func newAddCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false,
 		"install every skill discovered in the source without prompting")
 	return cmd
+}
+
+// absolutizePathSource rewrites a relative path source to an absolute one
+// against the invocation cwd, so the manifest and lockfile always store a
+// usable path (a relative source would otherwise be resolved against the
+// canonical skills dir, producing a broken editable symlink). Home-relative
+// (~/...) sources are left untouched: they stay portable and are expanded at
+// use time. Non-path sources (git URLs, shorthands) are never touched.
+func absolutizePathSource(spec *manifest.SourceSpec) error {
+	if !spec.IsPath {
+		return nil
+	}
+	if spec.Source == "~" || strings.HasPrefix(spec.Source, "~/") {
+		return nil
+	}
+	if filepath.IsAbs(spec.Source) {
+		return nil
+	}
+	abs, err := filepath.Abs(spec.Source)
+	if err != nil {
+		return err
+	}
+	spec.Source = abs
+	return nil
 }
 
 // pickerOptions turns the discovered skills into picker options, each

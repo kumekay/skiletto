@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kumekay/skiletto/internal/manifest"
 )
 
 func gitT(t *testing.T, dir string, args ...string) string {
@@ -153,6 +155,104 @@ func TestAddEditableFlag(t *testing.T) {
 	canonical := filepath.Join(project, ".agents", "skills", "my-skill")
 	if target, err := os.Readlink(canonical); err != nil || target != dir {
 		t.Errorf("canonical symlink -> %q (%v), want %q", target, err, dir)
+	}
+}
+
+func TestAddEditableRelativePathResolves(t *testing.T) {
+	project := t.TempDir()
+	dir := filepath.Join(project, "my-skill")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+
+	if _, stderr, err := run(t, "add", "--editable", "./my-skill"); err != nil {
+		t.Fatalf("add --editable ./my-skill: %v\n%s", err, stderr)
+	}
+
+	canonical := filepath.Join(project, ".agents", "skills", "my-skill")
+	// A broken symlink fails Stat: this asserts the link resolves.
+	if _, err := os.Stat(filepath.Join(canonical, "SKILL.md")); err != nil {
+		t.Fatalf("editable symlink does not resolve: %v", err)
+	}
+	target, err := os.Readlink(canonical)
+	if err != nil {
+		t.Fatalf("readlink: %v", err)
+	}
+	if !filepath.IsAbs(target) {
+		t.Errorf("symlink target %q is not absolute", target)
+	}
+	m, err := manifest.Load(filepath.Join(project, "skiletto.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src := m.Skills["my-skill"].Source; !filepath.IsAbs(src) {
+		t.Errorf("manifest source %q is not absolute", src)
+	}
+}
+
+func TestAddPinnedRelativePathAbsolutized(t *testing.T) {
+	project := t.TempDir()
+	repo := filepath.Join(project, "srcrepo")
+	gitT(t, "", "init", "-q", repo)
+	dir := filepath.Join(repo, "skills", "pdf")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# pdf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, repo, "add", ".")
+	gitT(t, repo, "commit", "-q", "-m", "skills")
+	t.Chdir(project)
+
+	if _, stderr, err := run(t, "add", "./srcrepo//skills/pdf"); err != nil {
+		t.Fatalf("add ./srcrepo//skills/pdf: %v\n%s", err, stderr)
+	}
+
+	m, err := manifest.Load(filepath.Join(project, "skiletto.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src := m.Skills["pdf"].Source; !filepath.IsAbs(src) {
+		t.Errorf("manifest source %q is not absolute", src)
+	}
+	if _, err := os.Stat(filepath.Join(project, ".agents", "skills", "pdf", "SKILL.md")); err != nil {
+		t.Errorf("skill not materialized: %v", err)
+	}
+}
+
+func TestAddEditableRelativePathGlobal(t *testing.T) {
+	home, _ := setMachineHome(t)
+	project := t.TempDir()
+	dir := filepath.Join(project, "my-skill")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+
+	if _, stderr, err := run(t, "add", "--global", "--editable", "./my-skill"); err != nil {
+		t.Fatalf("add --global --editable ./my-skill: %v\n%s", err, stderr)
+	}
+
+	// The relative source resolves against the invocation cwd (project),
+	// not the machine scope root (home).
+	canonical := filepath.Join(home, ".agents", "skills", "my-skill")
+	if _, err := os.Stat(filepath.Join(canonical, "SKILL.md")); err != nil {
+		t.Fatalf("editable symlink does not resolve: %v", err)
+	}
+	target, err := os.Readlink(canonical)
+	if err != nil {
+		t.Fatalf("readlink: %v", err)
+	}
+	if !filepath.IsAbs(target) {
+		t.Errorf("symlink target %q is not absolute", target)
 	}
 }
 
