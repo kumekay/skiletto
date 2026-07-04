@@ -44,6 +44,9 @@ skiletto add ssh://gitea@git.example.com:30009/me/skills.git//deploy
 skiletto add ~/p/my-skills//my-skill                  # local git repo, pinned
 skiletto add --editable ~/p/my-skills//my-skill       # link the working tree
 
+# a source with several skills and no //path: pick interactively, or
+skiletto add --all anthropics/skills                  # install every skill in it
+
 # make installed skills match the lockfile exactly
 skiletto sync
 skiletto sync --force   # also restore drifted skills to their locked version
@@ -72,8 +75,12 @@ skiletto sync --global
 - `add` resolves the ref (or the default branch) to a commit SHA, records
   the skill in `skiletto.toml`, pins commit and content hash in
   `skiletto.lock`, installs it, and links it into every harness. If the
-  source contains several skills and no `//path` was given, it lists them
-  and exits.
+  source contains several skills and no `//path` picks one, `add` shows a
+  multi-select picker in a terminal and installs everything you check.
+  `--all` installs every skill without prompting. With no TTY — or with
+  `--no-input`, or when the `CI` env var is set — it instead prints the
+  skills and the exact `//path` (or `--all`) commands to script the choice,
+  and exits non-zero, so scripts and CI never hang on a prompt.
 - `sync` installs exactly what the lock pins and resolves+locks manifest
   entries that are not locked yet. It never re-resolves already-locked
   versions. Skills with local modifications (drift) are warned about and
@@ -115,6 +122,9 @@ skiletto sync --global
   on Linux), skills materialize in `~/.agents/skills/`, and the Claude
   adapter links into `~/.claude/skills/`. Local path and editable sources
   are the normal case here, so `add` skips the portability warning.
+- `--no-input` (on any command) forces the non-interactive path: instead of
+  prompting, skiletto fails with an actionable error listing the flags that
+  script the choice. A set `CI` env var implies it.
 
 ## Development
 
