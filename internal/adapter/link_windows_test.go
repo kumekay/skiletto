@@ -5,6 +5,7 @@ package adapter
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -30,7 +31,7 @@ func TestJunctionRoundTrip(t *testing.T) {
 	mkSkill(t, canonical, "# demo")
 	link := filepath.Join(root, ".claude", "skills", "demo")
 
-	strategy, err := LinkDir(link, canonical)
+	strategy, err := LinkDir(link, canonical, false)
 	if err != nil {
 		t.Fatalf("LinkDir: %v", err)
 	}
@@ -53,7 +54,7 @@ func TestJunctionRoundTrip(t *testing.T) {
 	}
 
 	// Removing the junction must not delete the canonical tree behind it.
-	if err := RemoveLinkOrCopy(link, canonical); err != nil {
+	if err := RemoveLinkOrCopy(link, canonical, false); err != nil {
 		t.Fatalf("RemoveLinkOrCopy: %v", err)
 	}
 	if _, err := os.Lstat(link); !os.IsNotExist(err) {
@@ -74,10 +75,10 @@ func TestJunctionReLinkIsIdempotent(t *testing.T) {
 	mkSkill(t, canonical, "# demo")
 	link := filepath.Join(root, ".claude", "skills", "demo")
 
-	if _, err := LinkDir(link, canonical); err != nil {
+	if _, err := LinkDir(link, canonical, false); err != nil {
 		t.Fatalf("first LinkDir: %v", err)
 	}
-	if s, err := LinkDir(link, canonical); err != nil || s != StrategyJunction {
+	if s, err := LinkDir(link, canonical, false); err != nil || s != StrategyJunction {
 		t.Fatalf("second LinkDir = %q, %v; want junction, nil", s, err)
 	}
 }
@@ -131,7 +132,7 @@ func TestCopyStrategy(t *testing.T) {
 	if !IsOwnLink(filepath.Dir(canonical), link) {
 		t.Error("matching copy not recognized as our own link")
 	}
-	if err := RemoveLinkOrCopy(link, canonical); err != nil {
+	if err := RemoveLinkOrCopy(link, canonical, false); err != nil {
 		t.Fatalf("RemoveLinkOrCopy(copy): %v", err)
 	}
 	if _, err := os.Lstat(link); !os.IsNotExist(err) {
@@ -148,8 +149,76 @@ func TestCopyStrategy(t *testing.T) {
 	if IsOwnLink(filepath.Dir(canonical), link) {
 		t.Error("diverged copy wrongly recognized as ours")
 	}
-	if err := RemoveLinkOrCopy(link, canonical); err == nil {
+	if err := RemoveLinkOrCopy(link, canonical, false); err == nil {
 		t.Error("diverged copy should be refused")
+	}
+	// force recovers it.
+	if err := RemoveLinkOrCopy(link, canonical, true); err != nil {
+		t.Fatalf("RemoveLinkOrCopy(diverged, force): %v", err)
+	}
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Error("diverged copy not removed with force")
+	}
+}
+
+// TestCopyChainViaEnv drives the real fallback chain to the copy strategy
+// by disabling symlinks and junctions, then verifies a diverged copy is
+// replaced only with force.
+func TestCopyChainViaEnv(t *testing.T) {
+	t.Setenv(noSymlinkEnv, "1")
+	t.Setenv(noJunctionEnv, "1")
+
+	root := t.TempDir()
+	canonical := filepath.Join(root, ".agents", "skills", "demo")
+	mkSkill(t, canonical, "# demo")
+	link := filepath.Join(root, ".claude", "skills", "demo")
+
+	strategy, err := LinkDir(link, canonical, false)
+	if err != nil {
+		t.Fatalf("LinkDir: %v", err)
+	}
+	if strategy != StrategyCopy {
+		t.Fatalf("strategy = %q, want copy", strategy)
+	}
+	// Re-linking over the pristine copy is idempotent.
+	if s, err := LinkDir(link, canonical, false); err != nil || s != StrategyCopy {
+		t.Fatalf("re-link over pristine copy = %q, %v; want copy, nil", s, err)
+	}
+	// Diverge: refused without force, replaced with it.
+	if err := os.WriteFile(filepath.Join(link, "SKILL.md"), []byte("# user edit"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LinkDir(link, canonical, false); err == nil {
+		t.Fatal("LinkDir should refuse a diverged copy without force")
+	}
+	if _, err := LinkDir(link, canonical, true); err != nil {
+		t.Fatalf("LinkDir --force: %v", err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(link, "SKILL.md")); string(data) != "# demo" {
+		t.Errorf("diverged copy not restored by force: %q", data)
+	}
+}
+
+// TestEditableFailsWhenOnlyCopyWorks: the no-copy chain must fail with the
+// live-link explanation when neither symlink nor junction is available.
+func TestEditableFailsWhenOnlyCopyWorks(t *testing.T) {
+	t.Setenv(noSymlinkEnv, "1")
+	t.Setenv(noJunctionEnv, "1")
+
+	root := t.TempDir()
+	worktree := filepath.Join(root, "worktree")
+	mkSkill(t, worktree, "# live")
+	canonical := filepath.Join(root, ".agents", "skills", "demo")
+
+	err := Symlink(canonical, worktree)
+	if err == nil {
+		t.Fatal("Symlink should fail when no live-link strategy is available")
+	}
+	if !strings.Contains(err.Error(), "Developer Mode") {
+		t.Errorf("error lacks recovery guidance: %v", err)
+	}
+	if _, statErr := os.Lstat(canonical); !os.IsNotExist(statErr) {
+		t.Error("failed editable link left something behind")
 	}
 }
 
@@ -162,10 +231,10 @@ func TestForeignDirRefused(t *testing.T) {
 	link := filepath.Join(root, ".claude", "skills", "demo")
 	mkSkill(t, link, "# someone else's skill")
 
-	if _, err := LinkDir(link, canonical); err == nil {
+	if _, err := LinkDir(link, canonical, false); err == nil {
 		t.Error("LinkDir should refuse to overwrite a foreign directory")
 	}
-	if err := RemoveLinkOrCopy(link, canonical); err == nil {
+	if err := RemoveLinkOrCopy(link, canonical, false); err == nil {
 		t.Error("RemoveLinkOrCopy should refuse a foreign directory")
 	}
 }

@@ -30,6 +30,13 @@ type linkStep struct {
 	link     func(link, target string) error
 }
 
+// reclaimDir decides whether a real directory occupying a link location may
+// be removed (and replaced or deleted). Platform-specific: never on unix,
+// where skiletto produces no copies; on Windows when forced or when the
+// contents hash-match the canonical tree, which is proof the copy is ours.
+// A variable so the Windows rule is testable on any OS.
+var reclaimDir = platformReclaimDir
+
 // runLinkChain tries steps in order and returns the strategy of the first
 // that succeeds. When only one strategy exists (the unix chain, symlink
 // only) its error is returned verbatim, so the unix path is
@@ -53,36 +60,41 @@ func runLinkChain(link, target string, steps []linkStep) (LinkStrategy, error) {
 // Symlink creates a link at link pointing to target, creating parent
 // directories as needed, using the platform fallback chain that stops
 // before copying (a symlink, then a directory junction on Windows). Editable
-// installs rely on it because a copy cannot stay live. It refuses to replace
-// anything that is not one of our links.
+// installs rely on it because a copy cannot stay live; on a platform where
+// only copying would work the failure carries that explanation. It refuses
+// to replace anything that is not one of our links.
 func Symlink(link, target string) error {
-	_, err := createLink(link, target, false)
-	return err
+	if _, err := createLink(link, target, false, false); err != nil {
+		return wrapNoLiveLink(err)
+	}
+	return nil
 }
 
 // LinkDir creates a link at link pointing to target using the full platform
 // fallback chain (a symlink, a directory junction, then a copy as a last
-// resort on Windows) and reports the strategy used.
-func LinkDir(link, target string) (LinkStrategy, error) {
-	return createLink(link, target, true)
+// resort on Windows) and reports the strategy used. force additionally
+// replaces a copy at link that has diverged from the canonical tree.
+func LinkDir(link, target string, force bool) (LinkStrategy, error) {
+	return createLink(link, target, true, force)
 }
 
-func createLink(link, target string, allowCopy bool) (LinkStrategy, error) {
+func createLink(link, target string, allowCopy, force bool) (LinkStrategy, error) {
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		return "", err
 	}
-	if err := clearExisting(link, target, allowCopy); err != nil {
+	if err := clearExisting(link, target, allowCopy, force); err != nil {
 		return "", err
 	}
 	return runLinkChain(link, target, linkSteps(allowCopy))
 }
 
 // clearExisting removes whatever already sits at link if it is provably
-// ours: a symlink or junction, or — only when allowCopy is set (the copy
-// fallback path) — a copy whose contents match target (the canonical tree).
-// A foreign real directory yields NotASymlinkError and is never touched. A
-// missing entry is fine.
-func clearExisting(link, target string, allowCopy bool) error {
+// ours: a symlink or junction, or — only on the copy-capable path — a real
+// directory the platform reclaim rule accepts (a copy matching target, the
+// canonical tree, or any real directory under force on Windows). Anything
+// else yields NotASymlinkError and is never touched. A missing entry is
+// fine.
+func clearExisting(link, target string, allowCopy, force bool) error {
 	fi, err := os.Lstat(link)
 	if os.IsNotExist(err) {
 		return nil
@@ -97,10 +109,10 @@ func clearExisting(link, target string, allowCopy bool) error {
 	if isLink {
 		return os.Remove(link)
 	}
-	if allowCopy && fi.IsDir() && ourCopy(link, target) {
+	if allowCopy && fi.IsDir() && reclaimDir(link, target, force) {
 		return os.RemoveAll(link)
 	}
-	return &NotASymlinkError{Path: link}
+	return &NotASymlinkError{Path: link, Hint: reclaimHint}
 }
 
 // RemoveLink removes a link (a symlink or, on Windows, a directory junction)
@@ -123,11 +135,11 @@ func RemoveLink(link string) error {
 	return os.Remove(link)
 }
 
-// RemoveLinkOrCopy removes the link at link, or, when link is a copy of the
-// canonical tree (a real directory whose contents hash equal to canonical),
-// the copied directory. A real directory that does not match canonical is
-// refused. A missing link is a no-op.
-func RemoveLinkOrCopy(link, canonical string) error {
+// RemoveLinkOrCopy removes the link at link, or, when link is a real
+// directory the platform reclaim rule accepts (a copy matching canonical,
+// or any real directory under force on Windows), the copied directory.
+// Anything else is refused. A missing link is a no-op.
+func RemoveLinkOrCopy(link, canonical string, force bool) error {
 	fi, err := os.Lstat(link)
 	if os.IsNotExist(err) {
 		return nil
@@ -142,10 +154,10 @@ func RemoveLinkOrCopy(link, canonical string) error {
 	if isLink {
 		return os.Remove(link)
 	}
-	if fi.IsDir() && ourCopy(link, canonical) {
+	if fi.IsDir() && reclaimDir(link, canonical, force) {
 		return os.RemoveAll(link)
 	}
-	return fmt.Errorf("%s is not a skiletto link; refusing to remove it", link)
+	return &NotOurLinkError{Path: link, Hint: reclaimHint}
 }
 
 // IsLink reports whether path is one of skiletto's links: a symlink or, on

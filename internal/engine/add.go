@@ -274,7 +274,7 @@ func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *l
 	if err := e.promote(staged, name); err != nil {
 		return err
 	}
-	if err := e.linkAll(name); err != nil {
+	if err := e.linkAll(name, false); err != nil {
 		e.cleanupFailedAdd(name, false)
 		return err
 	}
@@ -293,7 +293,7 @@ func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *l
 // when it is a symlink, never a pre-existing real directory.
 func (e *Engine) cleanupFailedAdd(name string, symlinkOnly bool) {
 	for _, a := range e.Adapters {
-		_ = a.Unlink(e.Scope, name)
+		_ = a.Unlink(e.Scope, name, false)
 	}
 	canonical := e.Scope.SkillDir(name)
 	if symlinkOnly {

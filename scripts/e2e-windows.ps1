@@ -73,4 +73,67 @@ Assert (-not (Test-Path $link)) "adapter junction survived remove"
 Assert (-not (Test-Path $canonical)) "canonical tree survived remove"
 
 Pop-Location
+
+# ============================================================
+# Copy-mode leg: junctions disabled too, so the last-resort copy
+# strategy carries the whole add/sync/update/remove lifecycle.
+# ============================================================
+$env:SKILETTO_NO_JUNCTION = '1'
+
+$project2 = Join-Path $work 'project-copy'
+New-Item -ItemType Directory -Path $project2 | Out-Null
+Push-Location $project2
+
+$link2      = Join-Path $project2 '.claude/skills/demo'
+$canonical2 = Join-Path $project2 '.agents/skills/demo'
+$linkFile2  = Join-Path $link2 'SKILL.md'
+
+# add falls back to a plain directory copy
+Run @('add', "$srcUrl//skills/demo")
+$item = Get-Item $link2 -Force
+Assert (-not $item.LinkType) "expected a plain directory copy, got LinkType '$($item.LinkType)'"
+Assert ((Get-Content $linkFile2 -Raw) -eq '# demo skill') "copy does not carry the skill content"
+
+# sync over a pristine copy is idempotent
+Run @('sync')
+Assert ((Get-Content $linkFile2 -Raw) -eq '# demo skill') "sync broke the pristine copy"
+
+# update after an upstream advance must refresh the pristine copy, no --force
+Set-Content -Path (Join-Path $src 'skills/demo/SKILL.md') -Value "# demo skill v2" -NoNewline
+git -C $src add -A
+git -C $src commit -q -m "v2"
+Run @('update')
+Assert ((Get-Content $linkFile2 -Raw) -eq '# demo skill v2') "update did not refresh the pristine copy"
+Assert ((Get-Content (Join-Path $canonical2 'SKILL.md') -Raw) -eq '# demo skill v2') "update did not refresh the canonical tree"
+
+# a diverged copy is refused by sync, restored by sync --force
+Set-Content -Path $linkFile2 -Value "# user edit" -NoNewline
+& $exe sync 2>&1 | Write-Host
+Assert ($LASTEXITCODE -ne 0) "sync must refuse a diverged copy without --force"
+Assert ((Get-Content $linkFile2 -Raw) -eq '# user edit') "refused sync still modified the diverged copy"
+Run @('sync', '--force')
+Assert ((Get-Content $linkFile2 -Raw) -eq '# demo skill v2') "sync --force did not restore the diverged copy"
+
+# a diverged copy is refused by remove, deleted by remove --force
+Set-Content -Path $linkFile2 -Value "# user edit" -NoNewline
+& $exe remove demo 2>&1 | Write-Host
+Assert ($LASTEXITCODE -ne 0) "remove must refuse a diverged copy without --force"
+Assert (Test-Path $linkFile2) "refused remove still deleted the diverged copy"
+Run @('remove', '--force', 'demo')
+Assert (-not (Test-Path $link2)) "diverged copy survived remove --force"
+Assert (-not (Test-Path $canonical2)) "canonical tree survived remove --force"
+
+# editable installs cannot work as copies: clear failure, nothing installed
+$wt = Join-Path $work 'worktree'
+New-Item -ItemType Directory -Path (Join-Path $wt 'demo') | Out-Null
+Set-Content -Path (Join-Path $wt 'demo/SKILL.md') -Value "# live" -NoNewline
+$editableOut = (& $exe add --editable "$wt//demo" 2>&1) | Out-String
+$editableOut | Write-Host
+Assert ($LASTEXITCODE -ne 0) "add --editable must fail when only the copy strategy is available"
+Assert ($editableOut -match 'Developer Mode') "editable failure lacks recovery guidance: $editableOut"
+Assert (-not (Test-Path $canonical2)) "failed editable add left a canonical entry behind"
+
+Pop-Location
+Remove-Item Env:SKILETTO_NO_JUNCTION
+
 Write-Host "e2e-windows: OK"

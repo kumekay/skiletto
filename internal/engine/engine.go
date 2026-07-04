@@ -227,11 +227,11 @@ func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan, f
 				lockChanged = true
 			}
 		case ActionMaterialize:
-			err = e.applyMaterialize(act.Name, *lf.Find(act.Name))
+			err = e.applyMaterialize(act.Name, *lf.Find(act.Name), force)
 		case ActionLink:
 			err = e.applyLink(act.Name, m.Skills[act.Name], force)
 		case ActionPrune:
-			if err = e.applyPrune(act.Name); err == nil {
+			if err = e.applyPrune(act.Name, force); err == nil {
 				lf.Remove(act.Name)
 				lockChanged = true
 			}
@@ -277,7 +277,7 @@ func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lock
 	if err != nil {
 		return err
 	}
-	hash, _, err := e.install(name, src, commit, entry.Path)
+	hash, _, err := e.install(name, src, commit, entry.Path, force)
 	if err != nil {
 		// An ambiguous source reached through the manifest is fixed by
 		// setting path on the entry, not by re-running add.
@@ -287,7 +287,7 @@ func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lock
 		}
 		return err
 	}
-	if err := e.linkAll(name); err != nil {
+	if err := e.linkAll(name, force); err != nil {
 		return err
 	}
 	lf.Upsert(lockfile.Skill{
@@ -298,19 +298,19 @@ func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lock
 }
 
 // applyMaterialize reinstalls the exact locked commit.
-func (e *Engine) applyMaterialize(name string, locked lockfile.Skill) error {
+func (e *Engine) applyMaterialize(name string, locked lockfile.Skill, force bool) error {
 	src, err := e.NewSource(locked.Source)
 	if err != nil {
 		return err
 	}
-	hash, _, err := e.install(name, src, locked.Commit, locked.Path)
+	hash, _, err := e.install(name, src, locked.Commit, locked.Path, force)
 	if err != nil {
 		return err
 	}
 	if hash != locked.Hash {
 		return fmt.Errorf("content at commit %s does not match the locked hash", locked.Commit)
 	}
-	return e.linkAll(name)
+	return e.linkAll(name, force)
 }
 
 // applyLink ensures the canonical location (editable) and harness links.
@@ -318,16 +318,14 @@ func (e *Engine) applyLink(name string, entry manifest.Entry, force bool) error 
 	if entry.Editable {
 		return e.ensureEditable(name, entry, force)
 	}
-	return e.linkAll(name)
+	return e.linkAll(name, force)
 }
 
 // applyPrune unlinks a skill from every adapter and deletes its
 // materialized copy.
-func (e *Engine) applyPrune(name string) error {
-	for _, a := range e.Adapters {
-		if err := a.Unlink(e.Scope, name); err != nil {
-			return err
-		}
+func (e *Engine) applyPrune(name string, force bool) error {
+	if err := e.unlinkAll(name, force); err != nil {
+		return err
 	}
 	return removeInstalled(e.Scope.SkillDir(name))
 }
@@ -352,14 +350,21 @@ func (e *Engine) ensureEditable(name string, entry manifest.Entry, force bool) e
 	if err := adapter.Symlink(canonical, worktree); err != nil {
 		return err
 	}
-	return e.linkAll(name)
+	return e.linkAll(name, force)
 }
 
 // install fetches subpath at commit into a staging area, requires it to
 // contain exactly one skill, and promotes that skill directory to the
 // canonical location. It returns the content hash and the skill's
 // effective subpath within the source.
-func (e *Engine) install(name string, src source.Source, commit, subpath string) (hash, effPath string, err error) {
+//
+// Adapter links are removed after staging succeeds and before promotion,
+// while the canonical tree still has its pre-update content: a copy-linked
+// install proves itself ours by matching that tree, so unlinking any later
+// would refuse its own pristine copies. A diverged copy makes the unlink
+// fail here (unless force), before the canonical tree or the lock move —
+// nothing is left half-updated.
+func (e *Engine) install(name string, src source.Source, commit, subpath string, force bool) (hash, effPath string, err error) {
 	staged, effPath, cleanup, err := e.stage(src, commit, subpath)
 	if err != nil {
 		return "", "", err
@@ -367,6 +372,9 @@ func (e *Engine) install(name string, src source.Source, commit, subpath string)
 	defer cleanup()
 	hash, err = skill.Hash(staged)
 	if err != nil {
+		return "", "", err
+	}
+	if err := e.unlinkAll(name, force); err != nil {
 		return "", "", err
 	}
 	if err := e.promote(staged, name); err != nil {
@@ -425,11 +433,23 @@ func (e *Engine) stage(src source.Source, commit, subpath string) (staged, effPa
 	}
 }
 
-// linkAll links the canonical skill directory into every adapter.
-func (e *Engine) linkAll(name string) error {
+// linkAll links the canonical skill directory into every adapter. force
+// lets a link replace a copy-linked install that has diverged.
+func (e *Engine) linkAll(name string, force bool) error {
 	target := e.Scope.SkillDir(name)
 	for _, a := range e.Adapters {
-		if err := a.Link(e.Scope, name, target); err != nil {
+		if err := a.Link(e.Scope, name, target, force); err != nil {
+			return fmt.Errorf("adapter %s: %w", a.Name(), err)
+		}
+	}
+	return nil
+}
+
+// unlinkAll removes the skill's link from every adapter. force lets it
+// remove a copy-linked install that has diverged.
+func (e *Engine) unlinkAll(name string, force bool) error {
+	for _, a := range e.Adapters {
+		if err := a.Unlink(e.Scope, name, force); err != nil {
 			return fmt.Errorf("adapter %s: %w", a.Name(), err)
 		}
 	}

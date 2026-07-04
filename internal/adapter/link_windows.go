@@ -13,11 +13,15 @@ import (
 	"github.com/kumekay/skiletto/internal/skill"
 )
 
-// noSymlinkEnv, when set, makes the symlink step fail so the junction (and
-// then copy) fallback is exercised deterministically. GitHub's windows
+// noSymlinkEnv and noJunctionEnv, when set, make the corresponding strategy
+// fail so each fallback is exercised deterministically. GitHub's windows
 // runners can run elevated and would otherwise always succeed at symlinks,
-// hiding the fallback the CI canary is meant to cover.
-const noSymlinkEnv = "SKILETTO_NO_SYMLINK"
+// hiding the fallbacks the CI canary is meant to cover; setting both forces
+// the copy strategy.
+const (
+	noSymlinkEnv  = "SKILETTO_NO_SYMLINK"
+	noJunctionEnv = "SKILETTO_NO_JUNCTION"
+)
 
 // linkSteps on Windows is the full chain: symlink (needs Developer Mode),
 // then a directory junction (no privilege required), then a copy when copies
@@ -45,6 +49,9 @@ func trySymlink(link, target string) error {
 // mklink /J needs an absolute target, so a relative target is resolved
 // against link's parent directory.
 func makeJunction(link, target string) error {
+	if os.Getenv(noJunctionEnv) != "" {
+		return fmt.Errorf("junction disabled via %s", noJunctionEnv)
+	}
 	target = absTarget(link, target)
 	cmd := exec.Command("cmd", "/c", "mklink", "/J", link, target)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -107,9 +114,21 @@ func reparseLink(fi os.FileInfo) (bool, error) {
 	return false, nil
 }
 
-// ourCopy reports whether the real directory at link is a copy of canonical.
-func ourCopy(link, canonical string) bool {
-	return dirsMatch(link, canonical)
+// platformReclaimDir on Windows reclaims a real directory at a link
+// location when forced, or when its contents hash-match the canonical tree
+// (proof the directory is skiletto's own copy-link).
+func platformReclaimDir(link, canonical string, force bool) bool {
+	return force || dirsMatch(link, canonical)
+}
+
+// reclaimHint explains how to recover a copy-linked skill that no longer
+// matches its canonical tree.
+const reclaimHint = " (a copy-linked skill that has diverged counts as a local modification; re-run with --force to replace or delete it)"
+
+// wrapNoLiveLink explains why the no-copy chain exists when it fails: the
+// caller needed a live link (an editable install) and a copy would not do.
+func wrapNoLiveLink(err error) error {
+	return fmt.Errorf("%w (editable skills need a live link: enable Developer Mode for symlinks, or use a filesystem that supports directory junctions; a copy cannot stay live)", err)
 }
 
 // dirsMatch reports whether the directory at link has the same content hash

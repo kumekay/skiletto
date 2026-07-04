@@ -116,5 +116,9 @@ func importError(err error, source string) error {
 	if errors.As(err, &notLink) {
 		return fmt.Errorf("%w (likely installed by npx skills; remove it with 'rm -r %s' and re-run import)", err, notLink.Path)
 	}
+	var notOurs *adapter.NotOurLinkError
+	if errors.As(err, &notOurs) {
+		return fmt.Errorf("%w (likely installed by npx skills; remove it with 'rm -r %s' and re-run import)", err, notOurs.Path)
+	}
 	return err
 }

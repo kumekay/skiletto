@@ -19,9 +19,12 @@ type Adapter interface {
 	// SkillsDir is where the harness looks for skills in the given scope.
 	SkillsDir(s scope.Scope) string
 	// Link makes the skill at target visible to the harness under name.
-	Link(s scope.Scope, name, target string) error
+	// force additionally replaces a copy-linked install that has diverged
+	// from its canonical tree (a local modification).
+	Link(s scope.Scope, name, target string, force bool) error
 	// Unlink removes the harness link for name. Missing links are no-ops.
-	Unlink(s scope.Scope, name string) error
+	// force additionally removes a diverged copy-linked install.
+	Unlink(s scope.Scope, name string, force bool) error
 }
 
 var registry = map[string]Adapter{}
@@ -47,11 +50,25 @@ func All() []Adapter {
 
 // NotASymlinkError reports a link location occupied by something other
 // than a symlink (e.g. a real skill directory installed by another tool),
-// which skiletto never replaces.
+// which skiletto never replaces. Hint carries platform guidance (Windows
+// copy links) and is empty on unix, keeping the message unchanged there.
 type NotASymlinkError struct {
 	Path string
+	Hint string
 }
 
 func (e *NotASymlinkError) Error() string {
-	return fmt.Sprintf("%s exists and is not a symlink; refusing to replace it", e.Path)
+	return fmt.Sprintf("%s exists and is not a symlink; refusing to replace it%s", e.Path, e.Hint)
+}
+
+// NotOurLinkError reports a harness link location occupied by something
+// skiletto cannot prove it created — a foreign directory, or on Windows a
+// copy-linked install that diverged — which it refuses to remove.
+type NotOurLinkError struct {
+	Path string
+	Hint string
+}
+
+func (e *NotOurLinkError) Error() string {
+	return fmt.Sprintf("%s is not a skiletto link; refusing to remove it%s", e.Path, e.Hint)
 }

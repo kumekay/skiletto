@@ -142,11 +142,13 @@ link that has diverged is treated like any other local modification — `sync`,
 
 Two consequences of the copy fallback:
 
+- A **pristine** copy — one that still matches the canonical tree — behaves
+  exactly like a symlink: `sync` re-links over it, `update` refreshes it in
+  place, `remove` deletes it, none of them need `--force`. Only a copy you
+  have edited by hand is refused without `--force`.
 - **Editable installs need a symlink or a junction** — a copy cannot stay
   live. On a filesystem where only copying works, `skiletto add --editable`
   fails with a clear message instead of silently installing a stale snapshot.
-- A copy-linked skill is not refreshed in place by `update`; run it with
-  `--force` (or `remove` and re-`add`) to replace the copy.
 
 On Linux and macOS the behavior is unchanged: skiletto symlinks, or fails.
 
