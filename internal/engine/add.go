@@ -322,7 +322,7 @@ func singleSkill(spec manifest.SourceSpec, dirs []string) (string, error) {
 	default:
 		skills := make([]string, len(dirs))
 		for i, d := range dirs {
-			skills[i] = joinSubpath(spec.Path, d)
+			skills[i] = skillSubpath(spec.Path, d)
 		}
 		return "", &MultipleSkillsError{Source: spec.Source, Ref: spec.Ref, Skills: skills}
 	}

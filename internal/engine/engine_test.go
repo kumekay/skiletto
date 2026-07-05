@@ -485,6 +485,72 @@ func TestAddMultiSkillRepoWithoutPathFails(t *testing.T) {
 	}
 }
 
+// Issue #22: a source with a root skill and a nested one must suggest the
+// root skill as `<src>//.`, never an unusable bare `<src>//`, and its
+// Skills entry must be "." rather than "".
+func TestAddMultiSkillRootSkillSuggestsDot(t *testing.T) {
+	src := &fakeSource{commit: commitA, tree: map[string]string{
+		"SKILL.md":            "# root",
+		"skills/pdf/SKILL.md": "# pdf",
+	}}
+	f := newFixture(t, src)
+	spec := manifest.SourceSpec{Source: "https://github.com/o/r", Ref: "main"}
+
+	err := f.eng.Add(spec, false)
+	var multi *MultipleSkillsError
+	if !errors.As(err, &multi) {
+		t.Fatalf("error type = %T: %v", err, err)
+	}
+	hasDot := false
+	for _, s := range multi.Skills {
+		if s == "" {
+			t.Errorf("Skills contains an empty subpath: %q", multi.Skills)
+		}
+		if s == "." {
+			hasDot = true
+		}
+	}
+	if !hasDot {
+		t.Errorf("Skills missing the root skill %q: %q", ".", multi.Skills)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "https://github.com/o/r//.@main") {
+		t.Errorf("error missing root suggestion %q:\n%s", "https://github.com/o/r//.@main", msg)
+	}
+	for _, line := range strings.Split(msg, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasSuffix(line, "//") || strings.Contains(line, "//@") {
+			t.Errorf("malformed empty-path suggestion:\n%s", msg)
+		}
+	}
+}
+
+// Issue #22 follow-through: picking the root skill (subpath ".") from an
+// ambiguous source installs it.
+func TestAddSelectedRootSubpathInstalls(t *testing.T) {
+	src := &fakeSource{commit: commitA, tree: map[string]string{
+		"SKILL.md":            "# root",
+		"skills/pdf/SKILL.md": "# pdf",
+	}}
+	f := newFixture(t, src)
+	spec := manifest.SourceSpec{Source: "https://github.com/o/r", Ref: "main"}
+
+	if err := f.eng.AddSelected(spec, []string{"."}, false); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := manifest.Load(f.scope.ManifestPath)
+	e, ok := m.Skills["r"]
+	if !ok {
+		t.Fatalf("manifest missing root skill: %+v", m.Skills)
+	}
+	if e.Path != "." {
+		t.Errorf("path = %q, want .", e.Path)
+	}
+	if _, err := os.Stat(filepath.Join(f.scope.SkillDir("r"), "SKILL.md")); err != nil {
+		t.Errorf("root skill not installed: %v", err)
+	}
+}
+
 func TestAddEditablePathSource(t *testing.T) {
 	worktree := t.TempDir()
 	skillDir := filepath.Join(worktree, "my-skill")

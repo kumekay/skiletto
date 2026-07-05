@@ -51,6 +51,27 @@ func makeSkillRepo(t *testing.T, skills ...string) string {
 	return repo
 }
 
+// makeRootAndNestedRepo creates a git repo holding a skill at the root and
+// another under skills/, so an add without a //path is ambiguous.
+func makeRootAndNestedRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	gitT(t, "", "init", "-q", repo)
+	if err := os.WriteFile(filepath.Join(repo, "SKILL.md"), []byte("# root"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(repo, "skills", "pdf")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# pdf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, repo, "add", ".")
+	gitT(t, repo, "commit", "-q", "-m", "skills")
+	return repo
+}
+
 func run(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	cmd := newRootCmd()

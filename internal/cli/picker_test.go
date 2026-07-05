@@ -77,6 +77,40 @@ func TestAddMultiSelectInstallsChosen(t *testing.T) {
 	}
 }
 
+// Issue #22: the picker option for a root skill must carry Value "." and a
+// hint ending in `//.`, so selecting it re-drives the add addressably
+// instead of hitting the same ambiguity through an empty subpath.
+func TestAddMultiSelectRootSkillOptionUsesDot(t *testing.T) {
+	repo := makeRootAndNestedRepo(t)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	fake := &recordingPrompter{ret: []string{"."}}
+	setPrompter(t, fake)
+
+	if _, stderr, err := run(t, "add", repo); err != nil {
+		t.Fatalf("add: %v\n%s", err, stderr)
+	}
+	if !fake.called {
+		t.Fatal("prompter was not invoked for an ambiguous add")
+	}
+	var root *ui.Option
+	for i := range fake.options {
+		if fake.options[i].Value == "." {
+			root = &fake.options[i]
+		}
+		if fake.options[i].Value == "" {
+			t.Errorf("picker option with empty Value: %+v", fake.options)
+		}
+	}
+	if root == nil {
+		t.Fatalf("no picker option for the root skill (Value \".\"): %+v", fake.options)
+	}
+	if !strings.HasSuffix(root.Hint, "//.") {
+		t.Errorf("root option hint = %q, want it to end in //.", root.Hint)
+	}
+}
+
 func TestAddMultiSelectWarnsPortabilityOnce(t *testing.T) {
 	repo := makeSkillRepo(t, "pdf", "web")
 	project := t.TempDir()
