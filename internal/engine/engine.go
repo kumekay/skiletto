@@ -23,22 +23,34 @@ import (
 
 // Engine wires one scope to sources and adapters.
 type Engine struct {
-	Scope     scope.Scope
-	Adapters  []adapter.Adapter
-	NewSource func(src string) (source.Source, error)
-	Out       io.Writer
-	Err       io.Writer
+	Scope scope.Scope
+	// Machine is the resolved machine scope, set even when Scope is a
+	// project: its manifest's harnesses key applies in every scope (union
+	// semantics) and it anchors harness detection. nil means no machine
+	// configuration exists (tests).
+	Machine  *scope.Scope
+	Adapters []adapter.Adapter
+	// PromptHarnesses, when set, is the interactive one-time harness
+	// picker resolveHarnesses uses for a scope with no harnesses key. nil
+	// means non-interactive: install to the canonical dir only, with a
+	// note.
+	PromptHarnesses func([]HarnessOption) ([]string, error)
+	NewSource       func(src string) (source.Source, error)
+	Out             io.Writer
+	Err             io.Writer
 }
 
 // New returns a production engine for the scope: system git sources and
-// all registered adapters.
-func New(sc scope.Scope) (*Engine, error) {
+// all registered adapters. machine is the resolved machine scope, whose
+// manifest supplies machine-wide harnesses in any scope.
+func New(sc scope.Scope, machine scope.Scope) (*Engine, error) {
 	g, err := gitcli.New()
 	if err != nil {
 		return nil, err
 	}
 	return &Engine{
 		Scope:    sc,
+		Machine:  &machine,
 		Adapters: adapter.All(),
 		NewSource: func(src string) (source.Source, error) {
 			return source.New(g, src), nil
@@ -105,8 +117,12 @@ func (e *Engine) Sync(force bool) error {
 	if err != nil {
 		return err
 	}
+	enabled, err := e.resolveHarnesses(m, true)
+	if err != nil {
+		return err
+	}
 	plan := e.planSync(m, lf, force)
-	return e.apply(m, lf, plan, force)
+	return e.apply(m, lf, plan, force, enabled)
 }
 
 func (e *Engine) load() (*manifest.Manifest, *lockfile.Lockfile, error) {
@@ -216,22 +232,22 @@ func (e *Engine) installedHash(name string) (string, bool) {
 // apply executes a plan. Every failure is reported once, on e.Err as it
 // happens; the returned error only summarizes how many skills had
 // problems.
-func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan, force bool) error {
+func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan, force bool, enabled []adapter.Adapter) error {
 	failures := 0
 	lockChanged := false
 	for _, act := range plan.Actions {
 		var err error
 		switch act.Kind {
 		case ActionFetch:
-			if err = e.applyFetch(act.Name, m.Skills[act.Name], lf, force); err == nil {
+			if err = e.applyFetch(act.Name, m.Skills[act.Name], lf, force, enabled); err == nil {
 				lockChanged = true
 			}
 		case ActionMaterialize:
-			err = e.applyMaterialize(act.Name, *lf.Find(act.Name), force)
+			err = e.applyMaterialize(act.Name, *lf.Find(act.Name), force, enabled)
 		case ActionLink:
-			err = e.applyLink(act.Name, m.Skills[act.Name], force)
+			err = e.applyLink(act.Name, m.Skills[act.Name], force, enabled)
 		case ActionPrune:
-			if err = e.applyPrune(act.Name, force); err == nil {
+			if err = e.applyPrune(act.Name, force, enabled); err == nil {
 				lf.Remove(act.Name)
 				lockChanged = true
 			}
@@ -259,9 +275,9 @@ func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan, f
 }
 
 // applyFetch resolves a manifest entry, installs it, and locks it.
-func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lockfile, force bool) error {
+func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lockfile, force bool, enabled []adapter.Adapter) error {
 	if entry.Editable {
-		if err := e.ensureEditable(name, entry, force); err != nil {
+		if err := e.ensureEditable(name, entry, force, enabled); err != nil {
 			return err
 		}
 		lf.Upsert(lockfile.Skill{
@@ -277,7 +293,7 @@ func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lock
 	if err != nil {
 		return err
 	}
-	hash, _, err := e.install(name, src, commit, entry.Path, force)
+	hash, _, err := e.install(name, src, commit, entry.Path, force, enabled)
 	if err != nil {
 		// An ambiguous source reached through the manifest is fixed by
 		// setting path on the entry, not by re-running add.
@@ -287,7 +303,7 @@ func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lock
 		}
 		return err
 	}
-	if err := e.linkAll(name, force); err != nil {
+	if err := e.linkAll(name, force, enabled); err != nil {
 		return err
 	}
 	lf.Upsert(lockfile.Skill{
@@ -298,33 +314,33 @@ func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lock
 }
 
 // applyMaterialize reinstalls the exact locked commit.
-func (e *Engine) applyMaterialize(name string, locked lockfile.Skill, force bool) error {
+func (e *Engine) applyMaterialize(name string, locked lockfile.Skill, force bool, enabled []adapter.Adapter) error {
 	src, err := e.NewSource(locked.Source)
 	if err != nil {
 		return err
 	}
-	hash, _, err := e.install(name, src, locked.Commit, locked.Path, force)
+	hash, _, err := e.install(name, src, locked.Commit, locked.Path, force, enabled)
 	if err != nil {
 		return err
 	}
 	if hash != locked.Hash {
 		return fmt.Errorf("content at commit %s does not match the locked hash", locked.Commit)
 	}
-	return e.linkAll(name, force)
+	return e.linkAll(name, force, enabled)
 }
 
 // applyLink ensures the canonical location (editable) and harness links.
-func (e *Engine) applyLink(name string, entry manifest.Entry, force bool) error {
+func (e *Engine) applyLink(name string, entry manifest.Entry, force bool, enabled []adapter.Adapter) error {
 	if entry.Editable {
-		return e.ensureEditable(name, entry, force)
+		return e.ensureEditable(name, entry, force, enabled)
 	}
-	return e.linkAll(name, force)
+	return e.linkAll(name, force, enabled)
 }
 
 // applyPrune unlinks a skill from every adapter and deletes its
 // materialized copy.
-func (e *Engine) applyPrune(name string, force bool) error {
-	if err := e.unlinkAll(name, force); err != nil {
+func (e *Engine) applyPrune(name string, force bool, enabled []adapter.Adapter) error {
+	if err := e.unlinkAll(name, force, enabled); err != nil {
 		return err
 	}
 	return removeInstalled(e.Scope.SkillDir(name))
@@ -333,7 +349,7 @@ func (e *Engine) applyPrune(name string, force bool) error {
 // ensureEditable points the canonical location at the working tree and
 // links it into every adapter. A materialized copy left by a previous
 // pinned install is only replaced with force.
-func (e *Engine) ensureEditable(name string, entry manifest.Entry, force bool) error {
+func (e *Engine) ensureEditable(name string, entry manifest.Entry, force bool, enabled []adapter.Adapter) error {
 	worktree := filepath.Join(source.ExpandHome(entry.Source), filepath.FromSlash(entry.Path))
 	if fi, err := os.Stat(worktree); err != nil || !fi.IsDir() {
 		return fmt.Errorf("editable source %s is not a directory", worktree)
@@ -350,7 +366,7 @@ func (e *Engine) ensureEditable(name string, entry manifest.Entry, force bool) e
 	if err := adapter.Symlink(canonical, worktree); err != nil {
 		return err
 	}
-	return e.linkAll(name, force)
+	return e.linkAll(name, force, enabled)
 }
 
 // install fetches subpath at commit into a staging area, requires it to
@@ -364,7 +380,7 @@ func (e *Engine) ensureEditable(name string, entry manifest.Entry, force bool) e
 // would refuse its own pristine copies. A diverged copy makes the unlink
 // fail here (unless force), before the canonical tree or the lock move —
 // nothing is left half-updated.
-func (e *Engine) install(name string, src source.Source, commit, subpath string, force bool) (hash, effPath string, err error) {
+func (e *Engine) install(name string, src source.Source, commit, subpath string, force bool, enabled []adapter.Adapter) (hash, effPath string, err error) {
 	staged, effPath, cleanup, err := e.stage(src, commit, subpath)
 	if err != nil {
 		return "", "", err
@@ -374,7 +390,7 @@ func (e *Engine) install(name string, src source.Source, commit, subpath string,
 	if err != nil {
 		return "", "", err
 	}
-	if err := e.unlinkAll(name, force); err != nil {
+	if err := e.unlinkAll(name, force, enabled); err != nil {
 		return "", "", err
 	}
 	if err := e.promote(staged, name); err != nil {
@@ -446,27 +462,67 @@ func (e *Engine) stage(src source.Source, commit, subpath string) (staged, effPa
 	}
 }
 
-// linkAll links the canonical skill directory into every adapter. force
+// linkAll reconciles the skill's harness links: enabled adapters get a
+// link to the canonical directory, every other registered adapter has its
+// link removed (so disabling a harness converges on the next sync). force
 // lets a link replace a copy-linked install that has diverged.
-func (e *Engine) linkAll(name string, force bool) error {
+func (e *Engine) linkAll(name string, force bool, enabled []adapter.Adapter) error {
 	target := e.Scope.SkillDir(name)
+	on := enabledSet(enabled)
 	for _, a := range e.Adapters {
-		if err := a.Link(e.Scope, name, target, force); err != nil {
+		if on[a.Name()] {
+			if err := a.Link(e.Scope, name, target, force); err != nil {
+				return fmt.Errorf("adapter %s: %w", a.Name(), err)
+			}
+			continue
+		}
+		if err := unlinkTolerant(a, e.Scope, name, force); err != nil {
 			return fmt.Errorf("adapter %s: %w", a.Name(), err)
 		}
 	}
 	return nil
 }
 
-// unlinkAll removes the skill's link from every adapter. force lets it
-// remove a copy-linked install that has diverged.
-func (e *Engine) unlinkAll(name string, force bool) error {
+// unlinkAll removes the skill's link from every registered adapter. For
+// adapters that are not enabled, a location skiletto cannot prove it owns
+// is silently left alone — the user never asked for that harness, so a
+// foreign directory there is none of our business. For enabled adapters
+// the refusal surfaces (with force it removes a diverged copy).
+func (e *Engine) unlinkAll(name string, force bool, enabled []adapter.Adapter) error {
+	on := enabledSet(enabled)
 	for _, a := range e.Adapters {
-		if err := a.Unlink(e.Scope, name, force); err != nil {
+		if on[a.Name()] {
+			if err := a.Unlink(e.Scope, name, force); err != nil {
+				return fmt.Errorf("adapter %s: %w", a.Name(), err)
+			}
+			continue
+		}
+		if err := unlinkTolerant(a, e.Scope, name, force); err != nil {
 			return fmt.Errorf("adapter %s: %w", a.Name(), err)
 		}
 	}
 	return nil
+}
+
+// unlinkTolerant unlinks from a harness the user has not enabled,
+// swallowing the not-ours refusal: a foreign directory in a disabled
+// harness's dir must not block skill operations.
+func unlinkTolerant(a adapter.Adapter, sc scope.Scope, name string, force bool) error {
+	err := a.Unlink(sc, name, force)
+	var notOurs *adapter.NotOurLinkError
+	if errors.As(err, &notOurs) {
+		return nil
+	}
+	return err
+}
+
+// enabledSet indexes enabled adapters by name.
+func enabledSet(enabled []adapter.Adapter) map[string]bool {
+	on := make(map[string]bool, len(enabled))
+	for _, a := range enabled {
+		on[a.Name()] = true
+	}
+	return on
 }
 
 // removeInstalled deletes whatever occupies a canonical skill location: a

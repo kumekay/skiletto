@@ -22,7 +22,11 @@ type Entry struct {
 
 // Manifest is the parsed skiletto.toml.
 type Manifest struct {
-	Skills map[string]Entry `toml:"skills"`
+	// Harnesses lists the harness adapters whose link dirs this scope
+	// populates. nil means the key is absent (not yet configured); an
+	// explicit empty list means "canonical dir only".
+	Harnesses []string         `toml:"harnesses"`
+	Skills    map[string]Entry `toml:"skills"`
 }
 
 // Load reads the manifest at path. A missing file yields an empty manifest.
@@ -48,6 +52,13 @@ func Load(path string) (*Manifest, error) {
 // entry per skill, sorted by name.
 func (m *Manifest) Save(path string) error {
 	var b strings.Builder
+	if m.Harnesses != nil {
+		quoted := make([]string, len(m.Harnesses))
+		for i, h := range m.Harnesses {
+			quoted[i] = tomlString(h)
+		}
+		fmt.Fprintf(&b, "harnesses = [%s]\n\n", strings.Join(quoted, ", "))
+	}
 	b.WriteString("[skills]\n")
 	names := make([]string, 0, len(m.Skills))
 	for name := range m.Skills {

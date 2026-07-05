@@ -76,6 +76,93 @@ func TestSaveOmitsEmptyFields(t *testing.T) {
 	}
 }
 
+func TestLoadHarnessesAbsentIsNil(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "skiletto.toml")
+	if err := os.WriteFile(path, []byte("[skills]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Harnesses != nil {
+		t.Errorf("want nil Harnesses for absent key, got %#v", m.Harnesses)
+	}
+}
+
+func TestLoadHarnessesEmptyIsSet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "skiletto.toml")
+	if err := os.WriteFile(path, []byte("harnesses = []\n\n[skills]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Harnesses == nil {
+		t.Error("want non-nil Harnesses for explicit empty list")
+	}
+	if len(m.Harnesses) != 0 {
+		t.Errorf("want empty Harnesses, got %#v", m.Harnesses)
+	}
+}
+
+func TestHarnessesRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "skiletto.toml")
+	m := &Manifest{
+		Harnesses: []string{"claude", "goose"},
+		Skills: map[string]Entry{
+			"pdf": {Source: "https://github.com/anthropics/skills", Path: "skills/pdf"},
+		},
+	}
+	if err := m.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Harnesses, m.Harnesses) {
+		t.Errorf("Harnesses = %#v, want %#v", got.Harnesses, m.Harnesses)
+	}
+	data, _ := os.ReadFile(path)
+	content := string(data)
+	want := `harnesses = ["claude", "goose"]`
+	if !strings.Contains(content, want) {
+		t.Errorf("missing %q in output:\n%s", want, content)
+	}
+	if strings.Index(content, "harnesses") > strings.Index(content, "[skills]") {
+		t.Errorf("harnesses key must precede the [skills] table:\n%s", content)
+	}
+}
+
+func TestSaveOmitsNilHarnesses(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "skiletto.toml")
+	m := &Manifest{Skills: map[string]Entry{}}
+	if err := m.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "harnesses") {
+		t.Errorf("nil Harnesses must not be written:\n%s", data)
+	}
+}
+
+func TestSaveKeepsExplicitEmptyHarnesses(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "skiletto.toml")
+	m := &Manifest{Harnesses: []string{}, Skills: map[string]Entry{}}
+	if err := m.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Harnesses == nil || len(got.Harnesses) != 0 {
+		t.Errorf("want explicit empty Harnesses to survive a round trip, got %#v", got.Harnesses)
+	}
+}
+
 func TestParseSourceSpec(t *testing.T) {
 	cases := []struct {
 		spec string

@@ -81,6 +81,11 @@ func (a *fakeAdapter) Unlink(s scope.Scope, name string, force bool) error {
 	return nil
 }
 
+func (a *fakeAdapter) Detected(s scope.Scope) bool {
+	_, err := os.Lstat(a.SkillsDir(s))
+	return err == nil
+}
+
 type fixture struct {
 	eng     *Engine
 	scope   scope.Scope
@@ -100,8 +105,20 @@ func newFixtureScope(t *testing.T, src *fakeSource, sc scope.Scope) *fixture {
 	ad := newFakeAdapter()
 	out := &bytes.Buffer{}
 	errOut := &bytes.Buffer{}
+	// A machine scope with the fake harness enabled, so fixtures link by
+	// default; tests exercising unconfigured scopes clear eng.Machine.
+	machine := sc
+	if sc.Kind != scope.KindMachine {
+		home := t.TempDir()
+		machine = scope.Machine(home, filepath.Join(home, ".config"))
+	}
+	mm := &manifest.Manifest{Harnesses: []string{"fake"}, Skills: map[string]manifest.Entry{}}
+	if err := mm.Save(machine.ManifestPath); err != nil {
+		t.Fatal(err)
+	}
 	eng := &Engine{
 		Scope:    sc,
+		Machine:  &machine,
 		Adapters: []adapter.Adapter{ad},
 		NewSource: func(s string) (source.Source, error) {
 			return src, nil
@@ -110,6 +127,16 @@ func newFixtureScope(t *testing.T, src *fakeSource, sc scope.Scope) *fixture {
 		Err: errOut,
 	}
 	return &fixture{eng: eng, scope: sc, src: src, adapter: ad, out: out, errOut: errOut}
+}
+
+// setMachineHarnesses rewrites the fixture's machine manifest to enable
+// exactly the given harnesses.
+func (f *fixture) setMachineHarnesses(t *testing.T, names ...string) {
+	t.Helper()
+	mm := &manifest.Manifest{Harnesses: names, Skills: map[string]manifest.Entry{}}
+	if err := mm.Save(f.eng.Machine.ManifestPath); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (f *fixture) writeManifest(t *testing.T, m *manifest.Manifest) {
@@ -681,6 +708,7 @@ func TestSyncMultiSkillEntryPointsAtManifest(t *testing.T) {
 func TestAddFailureLeavesNoOrphan(t *testing.T) {
 	f := newFixture(t, pdfSource())
 	f.eng.Adapters = []adapter.Adapter{failingAdapter{}}
+	f.setMachineHarnesses(t, "failing")
 	spec := manifest.SourceSpec{Source: "https://github.com/o/r", Path: "skills/pdf"}
 
 	if err := f.eng.Add(spec, false); err == nil {
@@ -705,6 +733,7 @@ func TestAddEditableFailureLeavesNoOrphan(t *testing.T) {
 	}
 	f := newFixture(t, pdfSource())
 	f.eng.Adapters = []adapter.Adapter{failingAdapter{}}
+	f.setMachineHarnesses(t, "failing")
 	spec := manifest.SourceSpec{Source: worktree, IsPath: true}
 
 	if err := f.eng.Add(spec, true); err == nil {
@@ -723,6 +752,7 @@ func (failingAdapter) Link(s scope.Scope, name, target string, force bool) error
 	return fmt.Errorf("link refused")
 }
 func (failingAdapter) Unlink(s scope.Scope, name string, force bool) error { return nil }
+func (failingAdapter) Detected(s scope.Scope) bool                         { return false }
 
 // Finding 5: each sync failure is reported exactly once (in the streamed
 // warnings, not repeated in the returned error).

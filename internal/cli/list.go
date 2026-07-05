@@ -22,7 +22,7 @@ func newListCmd() *cobra.Command {
 			return eng.List()
 		},
 	}
-	cmd.Flags().BoolVar(&global, "global", false,
+	cmd.Flags().BoolVarP(&global, "global", "g", false,
 		"list the machine-scope skills instead of the current project's")
 	return cmd
 }

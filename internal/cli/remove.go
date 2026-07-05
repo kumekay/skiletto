@@ -24,7 +24,7 @@ func newRemoveCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&force, "force", false,
 		"remove a drifted skill even though it has local modifications")
-	cmd.Flags().BoolVar(&global, "global", false,
+	cmd.Flags().BoolVarP(&global, "global", "g", false,
 		"operate on the machine-scope manifest and lock instead of the current project")
 	return cmd
 }

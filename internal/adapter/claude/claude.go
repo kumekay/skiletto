@@ -3,6 +3,7 @@
 package claude
 
 import (
+	"os"
 	"path/filepath"
 
 	"github.com/kumekay/skiletto/internal/adapter"
@@ -49,4 +50,11 @@ func (c Claude) Link(s scope.Scope, name, target string, force bool) error {
 // A foreign directory is left alone.
 func (c Claude) Unlink(s scope.Scope, name string, force bool) error {
 	return adapter.RemoveLinkOrCopy(filepath.Join(c.SkillsDir(s), name), s.SkillDir(name), force)
+}
+
+// Detected reports whether Claude Code appears installed: its config dir
+// (.claude under the scope root) exists.
+func (c Claude) Detected(s scope.Scope) bool {
+	fi, err := os.Stat(filepath.Join(s.Root, ".claude"))
+	return err == nil && fi.IsDir()
 }

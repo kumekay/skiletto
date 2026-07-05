@@ -20,6 +20,9 @@ type Option struct {
 	Label string
 	Value string
 	Hint  string
+	// Selected pre-checks the option in the interactive picker (e.g. a
+	// harness detected on this machine).
+	Selected bool
 }
 
 // Prompter collects a choice from the user. Implementations are either
@@ -38,17 +41,17 @@ type SelectOpts struct {
 	CI        string
 }
 
-// interactive reports whether a real prompt may be shown: both streams must
-// be terminals, --no-input must be absent, and the CI env var must be
+// Interactive reports whether a real prompt may be shown: both streams
+// must be terminals, --no-input must be absent, and the CI env var must be
 // empty. Any non-empty CI value forces the non-interactive path.
-func (o SelectOpts) interactive() bool {
+func (o SelectOpts) Interactive() bool {
 	return o.StdinTTY && o.StdoutTTY && !o.NoInput && o.CI == ""
 }
 
 // Select returns the interactive prompter when the environment allows it,
 // otherwise the non-interactive one.
 func Select(o SelectOpts) Prompter {
-	if o.interactive() {
+	if o.Interactive() {
 		return huhPrompter{}
 	}
 	return ErrPrompter{}

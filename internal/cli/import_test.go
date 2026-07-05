@@ -33,6 +33,9 @@ func TestImportEndToEnd(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
 
+	if _, stderr, err := run(t, "harness", "enable", "claude"); err != nil {
+		t.Fatalf("harness enable: %v\n%s", err, stderr)
+	}
 	writeLockJSON(t, project, map[string]map[string]string{
 		"pdf": {
 			"source":     repo,
@@ -135,6 +138,9 @@ func TestImportHintsOnPreexistingClaudeSkillDir(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
 
+	if _, stderr, err := run(t, "harness", "enable", "claude"); err != nil {
+		t.Fatalf("harness enable: %v\n%s", err, stderr)
+	}
 	old := filepath.Join(project, ".claude", "skills", "pdf")
 	if err := os.MkdirAll(old, 0o755); err != nil {
 		t.Fatal(err)

@@ -33,7 +33,7 @@ func newImportCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&force, "force", false,
 		"overwrite installed skills that import cannot prove pristine (drifted lock orphans or unmanaged trees)")
-	cmd.Flags().BoolVar(&global, "global", false,
+	cmd.Flags().BoolVarP(&global, "global", "g", false,
 		"write the machine-scope manifest and lock (config dir, skills under ~/.agents/skills) instead of the current project")
 	return cmd
 }

@@ -11,7 +11,7 @@ type huhPrompter struct{}
 func (huhPrompter) MultiSelect(title string, options []Option) ([]string, error) {
 	huhOptions := make([]huh.Option[string], len(options))
 	for i, o := range options {
-		huhOptions[i] = huh.NewOption(o.Label, o.Value)
+		huhOptions[i] = huh.NewOption(o.Label, o.Value).Selected(o.Selected)
 	}
 	var selected []string
 	field := huh.NewMultiSelect[string]().

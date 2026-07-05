@@ -25,6 +25,10 @@ type Adapter interface {
 	// Unlink removes the harness link for name. Missing links are no-ops.
 	// force additionally removes a diverged copy-linked install.
 	Unlink(s scope.Scope, name string, force bool) error
+	// Detected reports whether the harness itself appears installed under
+	// the machine scope (its config dir exists). It only seeds the one-time
+	// harness picker; enablement is always explicit configuration.
+	Detected(s scope.Scope) bool
 }
 
 var registry = map[string]Adapter{}
