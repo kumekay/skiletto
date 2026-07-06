@@ -6,10 +6,11 @@ commit SHAs, reproducible installs on any machine.
 A skill is any directory containing a `SKILL.md` inside a git repository.
 skiletto records what you want in `skiletto.toml`, pins exact commits and
 content hashes in `skiletto.lock` (commit both), materializes skills in
-`.agents/skills/<name>`, and symlinks them into each enabled harness
-(currently Claude Code's `.claude/skills/`). The canonical `.agents/skills/`
-dir is always populated — harnesses that read it directly need no links at
-all; the rest are opt-in via `skiletto harness`.
+`.agents/skills/<name>`, and symlinks them into each enabled harness (e.g.
+Claude Code's `.claude/skills/`; run `skiletto harness list` for the full
+set). The canonical `.agents/skills/` dir is always populated — harnesses
+that read it directly need no links at all; the rest are opt-in via
+`skiletto harness`.
 
 Early development — see the [design doc](https://github.com/kumekay/skiletto/wiki)
 for where this is headed.

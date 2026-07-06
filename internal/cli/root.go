@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	// Register compiled-in harness adapters.
-	_ "github.com/kumekay/skiletto/internal/adapter/claude"
+	_ "github.com/kumekay/skiletto/internal/adapter/harness"
 	"github.com/kumekay/skiletto/internal/engine"
 	"github.com/kumekay/skiletto/internal/scope"
 )
