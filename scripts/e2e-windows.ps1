@@ -48,6 +48,9 @@ Push-Location $project
 $link      = Join-Path $project '.claude/skills/demo'
 $canonical = Join-Path $project '.agents/skills/demo'
 
+# harness linking is opt-in: enable claude so add/sync link into .claude
+Run @('harness', 'enable', 'claude')
+
 # add
 Run @('add', "$srcUrl//skills/demo")
 Assert (Test-Path (Join-Path $canonical 'SKILL.md')) "canonical tree missing after add"
@@ -87,6 +90,9 @@ Push-Location $project2
 $link2      = Join-Path $project2 '.claude/skills/demo'
 $canonical2 = Join-Path $project2 '.agents/skills/demo'
 $linkFile2  = Join-Path $link2 'SKILL.md'
+
+# harness linking is opt-in: enable claude so add/sync/update link into .claude
+Run @('harness', 'enable', 'claude')
 
 # add falls back to a plain directory copy
 Run @('add', "$srcUrl//skills/demo")
