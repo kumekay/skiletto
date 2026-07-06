@@ -440,7 +440,7 @@ func (e *Engine) stage(src source.Source, commit, subpath string) (staged, effPa
 		cleanup()
 		skills := make([]string, len(dirs))
 		for i, d := range dirs {
-			skills[i] = joinSubpath(subpath, d)
+			skills[i] = skillSubpath(subpath, d)
 		}
 		return "", "", nil, &MultipleSkillsError{Skills: skills}
 	}
@@ -488,6 +488,16 @@ func removeInstalled(dir string) error {
 		return os.Remove(dir)
 	}
 	return os.RemoveAll(dir)
+}
+
+// skillSubpath is joinSubpath for a skill listed in an ambiguity: an empty
+// join (the source root) becomes "." so the skill stays addressable as
+// <src>//. rather than an unusable bare <src>//.
+func skillSubpath(base, rel string) string {
+	if sub := joinSubpath(base, rel); sub != "" {
+		return sub
+	}
+	return "."
 }
 
 // joinSubpath joins a source subpath with a slash-relative discovered
