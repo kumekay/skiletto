@@ -6,8 +6,10 @@ commit SHAs, reproducible installs on any machine.
 A skill is any directory containing a `SKILL.md` inside a git repository.
 skiletto records what you want in `skiletto.toml`, pins exact commits and
 content hashes in `skiletto.lock` (commit both), materializes skills in
-`.agents/skills/<name>`, and symlinks them into each supported harness
-(currently Claude Code's `.claude/skills/`).
+`.agents/skills/<name>`, and symlinks them into each enabled harness
+(currently Claude Code's `.claude/skills/`). The canonical `.agents/skills/`
+dir is always populated — harnesses that read it directly need no links at
+all; the rest are opt-in via `skiletto harness`.
 
 Early development — see the [design doc](https://github.com/kumekay/skiletto/wiki)
 for where this is headed.
@@ -67,9 +69,15 @@ skiletto list
 skiletto import                 # reads ./skills-lock.json
 skiletto import path/to/skills-lock.json
 
-# --global installs machine-wide instead of into the current project
+# choose which harnesses get per-skill links (saved in skiletto.toml)
+skiletto harness list                     # registered harnesses + where enabled
+skiletto harness enable claude            # this project
+skiletto harness enable claude --global   # machine-wide, applies in every project
+skiletto harness disable claude
+
+# --global (-g) installs machine-wide instead of into the current project
 skiletto add --global --editable ~/p/my-skills//my-skill
-skiletto sync --global
+skiletto sync -g
 ```
 
 - `add` resolves the ref (or the default branch) to a commit SHA, records
@@ -101,6 +109,19 @@ skiletto sync --global
   but removed from the manifest show `pruned on next sync`; skills found in
   the skills dir or a harness dir but absent from the manifest show
   `unmanaged`. It only observes.
+- `harness` controls which harnesses get per-skill links, via a `harnesses`
+  key in the manifest. The effective set is the union of the project
+  manifest's key and the machine manifest's, so personal harnesses apply
+  everywhere without touching a shared `skiletto.toml`. `enable` links every
+  installed skill immediately; `disable` unlinks (warning when the harness
+  stays enabled machine-wide); `sync` keeps links reconciled with the key.
+  A scope with no key anywhere gets a one-time picker on the first
+  interactive `add`/`sync`/`import` (the answer is saved); without a TTY the
+  command installs to the canonical dir only and prints a note — never an
+  error, since canonical-only is always safe. If a harness link path already
+  resolves to the canonical directory (say `.claude/skills` is your own
+  symlink to `.agents/skills`), skiletto treats it as linked and touches
+  nothing.
 - `import` bootstraps `skiletto.toml` and `skiletto.lock` from a Vercel
   `npx skills` `skills-lock.json` (default: one in the current directory).
   Only the current version 3 lock format is read; older versions are
@@ -123,11 +144,14 @@ skiletto sync --global
 - `--editable` (local paths only) symlinks the working tree instead of
   copying a pinned commit, so edits are live; such entries carry no
   commit/hash and are never drift-checked.
-- `--global` (on `add` and `sync`) switches to the machine scope: the
+- `--global` / `-g` (on any command) switches to the machine scope: the
   manifest and lock live in the platform config dir (`~/.config/skiletto/`
   on Linux), skills materialize in `~/.agents/skills/`, and the Claude
   adapter links into `~/.claude/skills/`. Local path and editable sources
-  are the normal case here, so `add` skips the portability warning.
+  are the normal case here, so `add` skips the portability warning. The
+  machine scope is always explicit: running in your home directory without
+  `--global` is an error, not a project rooted at `~` — a home-rooted
+  "project" would silently share `~/.agents/skills` with the machine scope.
 - `--no-input` (on any command) forces the non-interactive path: instead of
   prompting, skiletto fails with an actionable error listing the flags that
   script the choice. A set `CI` env var implies it.

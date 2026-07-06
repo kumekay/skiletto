@@ -12,6 +12,10 @@ func (e *Engine) Remove(name string, force bool) error {
 	if err != nil {
 		return err
 	}
+	enabled, err := e.resolveHarnesses(m, false)
+	if err != nil {
+		return err
+	}
 	entry, ok := m.Skills[name]
 	if !ok {
 		return unknownSkillError(m, name)
@@ -23,7 +27,7 @@ func (e *Engine) Remove(name string, force bool) error {
 			}
 		}
 	}
-	if err := e.applyPrune(name, force); err != nil {
+	if err := e.applyPrune(name, force, enabled); err != nil {
 		return err
 	}
 	delete(m.Skills, name)

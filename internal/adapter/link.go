@@ -82,10 +82,53 @@ func createLink(link, target string, allowCopy, force bool) (LinkStrategy, error
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		return "", err
 	}
+	if aliasedInPlace(link, target) {
+		return StrategySymlink, nil
+	}
 	if err := clearExisting(link, target, allowCopy, force); err != nil {
 		return "", err
 	}
 	return runLinkChain(link, target, linkSteps(allowCopy))
+}
+
+// resolvesToSame reports whether a and b name the same directory once every
+// symlink in each path is fully resolved. Any EvalSymlinks failure (e.g. a
+// path that does not exist) means "cannot prove same" and yields false.
+func resolvesToSame(a, b string) bool {
+	ra, err := filepath.EvalSymlinks(a)
+	if err != nil {
+		return false
+	}
+	rb, err := filepath.EvalSymlinks(b)
+	if err != nil {
+		return false
+	}
+	return ra == rb
+}
+
+// aliasedInPlace reports whether the skill is already visible at link purely
+// because a parent directory of link is a symlink onto the canonical tree —
+// so link resolves straight to target itself. In that case there is nothing
+// to create and the real directory sitting at link is the canonical tree,
+// which must never be touched. It fires only when link's final component is a
+// real directory (not one of our reparse links): a genuine per-skill symlink
+// also resolves equal to target, but for that the normal replace path is
+// correct and must keep running. target may be relative to link's parent (the
+// claude adapter passes such a path), so it is resolved there first.
+func aliasedInPlace(link, target string) bool {
+	fi, err := os.Lstat(link)
+	if err != nil {
+		return false
+	}
+	isLink, err := reparseLink(fi)
+	if err != nil || isLink {
+		return false
+	}
+	targetAbs := target
+	if !filepath.IsAbs(targetAbs) {
+		targetAbs = filepath.Join(filepath.Dir(link), target)
+	}
+	return resolvesToSame(link, targetAbs)
 }
 
 // clearExisting removes whatever already sits at link if it is provably
@@ -153,6 +196,12 @@ func RemoveLinkOrCopy(link, canonical string, force bool) error {
 	}
 	if isLink {
 		return os.Remove(link)
+	}
+	// A real directory at link that resolves to the canonical tree is an
+	// illusion created by a parent-directory symlink: there is nothing of
+	// ours to remove, and RemoveAll would destroy the canonical skill.
+	if fi.IsDir() && resolvesToSame(link, canonical) {
+		return nil
 	}
 	if fi.IsDir() && reclaimDir(link, canonical, force) {
 		return os.RemoveAll(link)

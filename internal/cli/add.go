@@ -32,7 +32,7 @@ func newAddCmd() *cobra.Command {
 		Use:   "add <source>",
 		Short: "Add a skill: resolve, lock, install, and link it",
 		Long: "add records a skill in skiletto.toml, resolves its ref to a commit, " +
-			"pins it in skiletto.lock, materializes it, and links it into every harness.\n\n" +
+			"pins it in skiletto.lock, materializes it, and links it into every enabled harness (see 'skiletto harness').\n\n" +
 			"The source is <repo>[//subdir][@ref]: a git URL, an owner/repo GitHub " +
 			"shorthand, or a local path (with --editable, the working tree is " +
 			"linked instead of copied).\n\n" +
@@ -82,7 +82,7 @@ func newAddCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&editable, "editable", false,
 		"link the working tree of a local path source instead of copying a pinned commit")
-	cmd.Flags().BoolVar(&global, "global", false,
+	cmd.Flags().BoolVarP(&global, "global", "g", false,
 		"install for the whole machine (config dir manifest, skills under ~/.agents/skills) instead of the current project")
 	cmd.Flags().BoolVar(&all, "all", false,
 		"install every skill discovered in the source without prompting")

@@ -21,6 +21,7 @@ import (
 type copyAdapter struct{}
 
 func (copyAdapter) Name() string                   { return "copy" }
+func (copyAdapter) Detected(s scope.Scope) bool    { return false }
 func (copyAdapter) SkillsDir(s scope.Scope) string { return filepath.Join(s.Root, ".copy") }
 
 func (a copyAdapter) Link(s scope.Scope, name, target string, force bool) error {
@@ -94,6 +95,7 @@ func copyFixture(t *testing.T) (*fixture, copyAdapter) {
 	f := newFixtureScope(t, src, sc)
 	ad := copyAdapter{}
 	f.eng.Adapters = []adapter.Adapter{ad}
+	f.setMachineHarnesses(t, "copy")
 	f.writeManifest(t, &manifest.Manifest{Skills: map[string]manifest.Entry{"pdf": pdfEntry()}})
 	if err := f.eng.Sync(false); err != nil {
 		t.Fatal(err)

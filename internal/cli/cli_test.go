@@ -12,6 +12,21 @@ import (
 	"github.com/kumekay/skiletto/internal/manifest"
 )
 
+// TestMain points HOME and XDG_CONFIG_HOME at a throwaway directory so no
+// test ever reads the developer's real machine-scope manifest (its
+// harnesses key would change behavior) or writes near their home.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "skiletto-cli-home-")
+	if err != nil {
+		panic(err)
+	}
+	_ = os.Setenv("HOME", home)
+	_ = os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	code := m.Run()
+	_ = os.RemoveAll(home)
+	os.Exit(code)
+}
+
 func gitT(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	base := []string{
@@ -88,6 +103,9 @@ func TestAddAndSyncRoundTrip(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
 
+	if _, stderr, err := run(t, "harness", "enable", "claude"); err != nil {
+		t.Fatalf("harness enable: %v\n%s", err, stderr)
+	}
 	_, stderr, err := run(t, "add", repo+"//skills/pdf")
 	if err != nil {
 		t.Fatalf("add: %v\n%s", err, stderr)
@@ -296,6 +314,9 @@ func TestAddAndSyncGlobalRoundTrip(t *testing.T) {
 	home, config := setMachineHome(t)
 	t.Chdir(t.TempDir())
 
+	if _, stderr, err := run(t, "harness", "enable", "claude", "--global"); err != nil {
+		t.Fatalf("harness enable --global: %v\n%s", err, stderr)
+	}
 	if _, stderr, err := run(t, "add", "--global", repo+"//skills/pdf"); err != nil {
 		t.Fatalf("add --global: %v\n%s", err, stderr)
 	}
@@ -346,5 +367,41 @@ func TestAddEditableGlobalNoWarning(t *testing.T) {
 	canonical := filepath.Join(home, ".agents", "skills", "my-skill")
 	if target, err := os.Readlink(canonical); err != nil || target != dir {
 		t.Errorf("canonical symlink -> %q (%v), want %q", target, err, dir)
+	}
+}
+
+// Running without --global in the home directory would create a "project"
+// scope whose skills dir is the machine scope's ~/.agents/skills. The
+// machine scope must always be explicit.
+func TestHomeDirRequiresGlobal(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf")
+	home, _ := setMachineHome(t)
+	t.Chdir(home)
+
+	for _, args := range [][]string{
+		{"add", repo + "//skills/pdf"},
+		{"sync"},
+		{"list"},
+		{"harness", "enable", "claude"},
+	} {
+		_, _, err := run(t, args...)
+		if err == nil {
+			t.Errorf("%v: want error in home dir without --global", args)
+			continue
+		}
+		if !strings.Contains(err.Error(), "--global") {
+			t.Errorf("%v: error should point at --global, got %v", args, err)
+		}
+	}
+
+	// With --global (and its -g shorthand) the same invocations work.
+	if _, stderr, err := run(t, "harness", "enable", "claude", "-g"); err != nil {
+		t.Fatalf("harness enable -g: %v\n%s", err, stderr)
+	}
+	if _, stderr, err := run(t, "add", "-g", repo+"//skills/pdf"); err != nil {
+		t.Fatalf("add -g: %v\n%s", err, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "pdf", "SKILL.md")); err != nil {
+		t.Errorf("skill not materialized under home: %v", err)
 	}
 }

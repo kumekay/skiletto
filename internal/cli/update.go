@@ -30,7 +30,7 @@ func newUpdateCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&force, "force", false,
 		"overwrite drifted skills with the freshly re-resolved version")
-	cmd.Flags().BoolVar(&global, "global", false,
+	cmd.Flags().BoolVarP(&global, "global", "g", false,
 		"operate on the machine-scope manifest and lock instead of the current project")
 	return cmd
 }

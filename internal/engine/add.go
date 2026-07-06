@@ -67,8 +67,12 @@ func (e *Engine) Add(spec manifest.SourceSpec, editable bool) error {
 	if err != nil {
 		return err
 	}
+	enabled, err := e.resolveHarnesses(m, true)
+	if err != nil {
+		return err
+	}
 	e.warnPathSource(spec)
-	if err := e.addOne(spec, editable, m, lf); err != nil {
+	if err := e.addOne(spec, editable, m, lf, enabled); err != nil {
 		return err
 	}
 	return e.saveBoth(m, lf)
@@ -106,11 +110,15 @@ func (e *Engine) addSubpaths(spec manifest.SourceSpec, subpaths []string, editab
 	if err != nil {
 		return err
 	}
+	enabled, err := e.resolveHarnesses(m, true)
+	if err != nil {
+		return err
+	}
 	added, failures := 0, 0
 	for _, sub := range subpaths {
 		s := spec
 		s.Path = sub
-		if err := e.addOne(s, editable, m, lf); err != nil {
+		if err := e.addOne(s, editable, m, lf, enabled); err != nil {
 			failures++
 			_, _ = fmt.Fprintf(e.Err, "error: %s: %v\n", sub, err)
 			continue
@@ -129,11 +137,11 @@ func (e *Engine) addSubpaths(spec manifest.SourceSpec, subpaths []string, editab
 }
 
 // addOne dispatches a single-skill install to the editable or pinned path.
-func (e *Engine) addOne(spec manifest.SourceSpec, editable bool, m *manifest.Manifest, lf *lockfile.Lockfile) error {
+func (e *Engine) addOne(spec manifest.SourceSpec, editable bool, m *manifest.Manifest, lf *lockfile.Lockfile, enabled []adapter.Adapter) error {
 	if editable {
-		return e.addEditable(spec, m, lf)
+		return e.addEditable(spec, m, lf, enabled)
 	}
-	return e.addPinned(spec, m, lf)
+	return e.addPinned(spec, m, lf, enabled)
 }
 
 // discover lists the skill subpaths of a source without installing them,
@@ -210,7 +218,7 @@ func (e *Engine) warnPathSource(spec manifest.SourceSpec) {
 
 // addEditable symlinks the canonical location straight at the working
 // tree; the lock entry carries no commit and no hash.
-func (e *Engine) addEditable(spec manifest.SourceSpec, m *manifest.Manifest, lf *lockfile.Lockfile) error {
+func (e *Engine) addEditable(spec manifest.SourceSpec, m *manifest.Manifest, lf *lockfile.Lockfile, enabled []adapter.Adapter) error {
 	root := source.ExpandHome(spec.Source)
 	searchDir := filepath.Join(root, filepath.FromSlash(spec.Path))
 	if fi, err := os.Stat(searchDir); err != nil || !fi.IsDir() {
@@ -230,7 +238,7 @@ func (e *Engine) addEditable(spec manifest.SourceSpec, m *manifest.Manifest, lf 
 	}
 
 	entry := manifest.Entry{Source: spec.Source, Path: effPath, Editable: true}
-	if err := e.ensureEditable(name, entry, false); err != nil {
+	if err := e.ensureEditable(name, entry, false, enabled); err != nil {
 		e.cleanupFailedAdd(name, true)
 		return err
 	}
@@ -243,7 +251,7 @@ func (e *Engine) addEditable(spec manifest.SourceSpec, m *manifest.Manifest, lf 
 // addPinned resolves the spec's ref to a commit (via ls-remote for URLs,
 // locally for path sources, which must be git repositories), installs the
 // pinned content, and locks commit and hash.
-func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *lockfile.Lockfile) error {
+func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *lockfile.Lockfile, enabled []adapter.Adapter) error {
 	src, err := e.NewSource(spec.Source)
 	if err != nil {
 		return err
@@ -274,7 +282,7 @@ func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *l
 	if err := e.promote(staged, name); err != nil {
 		return err
 	}
-	if err := e.linkAll(name, false); err != nil {
+	if err := e.linkAll(name, false, enabled); err != nil {
 		e.cleanupFailedAdd(name, false)
 		return err
 	}

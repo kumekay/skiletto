@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -35,55 +36,78 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newRemoveCmd())
 	cmd.AddCommand(newListCmd())
 	cmd.AddCommand(newImportCmd())
+	cmd.AddCommand(newHarnessCmd())
 	return cmd
 }
 
 // engineFor builds an engine for the selected scope, writing through the
 // command's streams. global selects the machine scope (manifest and lock
 // in the platform config dir, skills under the home dir); otherwise the
-// project scope rooted at the current directory is used.
+// project scope rooted at the current directory is used. The machine scope
+// is resolved either way: its harnesses apply in every scope.
 func engineFor(cmd *cobra.Command, global bool) (*engine.Engine, error) {
-	sc, err := resolveScope(global)
+	machine, err := machineScope()
 	if err != nil {
 		return nil, err
 	}
-	eng, err := engine.New(sc)
+	sc := machine
+	if !global {
+		root, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		if sameDir(root, machine.Root) {
+			return nil, fmt.Errorf("the current directory is your home directory, the machine scope root; pass --global (-g) to manage machine-wide skills")
+		}
+		sc = scope.Project(root)
+	}
+	eng, err := engine.New(sc, machine)
 	if err != nil {
 		return nil, err
 	}
+	noInput, _ := cmd.Flags().GetBool("no-input")
+	eng.PromptHarnesses = harnessPrompter(noInput)
 	eng.Out = cmd.OutOrStdout()
 	eng.Err = cmd.ErrOrStderr()
 	return eng, nil
 }
 
-// resolveScope maps the --global flag to a scope, reading the home and
-// config dirs from the environment (HOME / XDG_CONFIG_HOME) so the machine
-// scope can be redirected in tests and by end users. The env is honored on
-// every platform; where it is unset the OS defaults apply (%USERPROFILE% and
-// %AppData% on Windows, ~ and ~/.config on Linux).
-func resolveScope(global bool) (scope.Scope, error) {
-	if global {
-		home := os.Getenv("HOME")
-		if home == "" {
-			var err error
-			if home, err = os.UserHomeDir(); err != nil {
-				return scope.Scope{}, err
-			}
-		}
-		config := os.Getenv("XDG_CONFIG_HOME")
-		if config == "" {
-			var err error
-			if config, err = os.UserConfigDir(); err != nil {
-				return scope.Scope{}, err
-			}
-		}
-		return scope.Machine(home, config), nil
-	}
-	root, err := os.Getwd()
+// sameDir reports whether two paths name the same directory, comparing the
+// actual filesystem entries so symlinked homes and cosmetic path
+// differences cannot dodge the check.
+func sameDir(a, b string) bool {
+	fa, err := os.Stat(a)
 	if err != nil {
-		return scope.Scope{}, err
+		return false
 	}
-	return scope.Project(root), nil
+	fb, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(fa, fb)
+}
+
+// machineScope resolves the machine scope, reading the home and config
+// dirs from the environment (HOME / XDG_CONFIG_HOME) so it can be
+// redirected in tests and by end users. The env is honored on every
+// platform; where it is unset the OS defaults apply (%USERPROFILE% and
+// %AppData% on Windows, ~ and ~/.config on Linux).
+func machineScope() (scope.Scope, error) {
+	home := os.Getenv("HOME")
+	if home == "" {
+		var err error
+		if home, err = os.UserHomeDir(); err != nil {
+			return scope.Scope{}, err
+		}
+	}
+	config := os.Getenv("XDG_CONFIG_HOME")
+	if config == "" {
+		var err error
+		if config, err = os.UserConfigDir(); err != nil {
+			return scope.Scope{}, err
+		}
+	}
+	return scope.Machine(home, config), nil
 }
 
 // Execute runs the root command.

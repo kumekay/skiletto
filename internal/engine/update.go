@@ -25,8 +25,12 @@ func (e *Engine) Update(name string, force bool) error {
 	if err != nil {
 		return err
 	}
+	enabled, err := e.resolveHarnesses(m, false)
+	if err != nil {
+		return err
+	}
 	plan := e.planUpdate(m, lf, names, force)
-	return e.apply(m, lf, plan, force)
+	return e.apply(m, lf, plan, force, enabled)
 }
 
 // updateTargets returns the manifest names to update: all of them (sorted)

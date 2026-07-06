@@ -139,6 +139,88 @@ func TestUnixNeverReclaimsRealDir(t *testing.T) {
 	}
 }
 
+// mkAliasedSkillsDir builds the directory-level symlink layout that trips the
+// alias bug: a real canonical skill dir under .agents/skills/<name>, and a
+// .claude/skills symlink pointing wholesale at ../.agents/skills, so the
+// per-skill link path .claude/skills/<name> resolves straight onto the
+// canonical tree. It returns the per-skill link path and the canonical dir.
+func mkAliasedSkillsDir(t *testing.T, dir, name string) (link, canonical string) {
+	t.Helper()
+	canonical = filepath.Join(dir, ".agents", "skills", name)
+	mkTree(t, canonical, "# "+name)
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", ".agents", "skills"), filepath.Join(dir, ".claude", "skills")); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, ".claude", "skills", name), canonical
+}
+
+// When the per-skill link path resolves — through a parent-directory symlink —
+// to the canonical tree itself, LinkDir is a no-op: it reports a symlink
+// strategy and leaves the canonical directory a real dir, untouched.
+func TestLinkDirAliasedParentIsNoOp(t *testing.T) {
+	dir := t.TempDir()
+	link, canonical := mkAliasedSkillsDir(t, dir, "pdf")
+
+	strat, err := LinkDir(link, canonical, false)
+	if err != nil {
+		t.Fatalf("LinkDir aliased: %v", err)
+	}
+	if strat != StrategySymlink {
+		t.Errorf("strategy = %q, want %q", strat, StrategySymlink)
+	}
+	fi, err := os.Lstat(canonical)
+	if err != nil {
+		t.Fatalf("canonical vanished: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		t.Error("canonical was replaced by a symlink")
+	}
+	if data, _ := os.ReadFile(filepath.Join(canonical, "SKILL.md")); string(data) != "# pdf" {
+		t.Errorf("canonical content = %q, want intact", data)
+	}
+}
+
+// RemoveLinkOrCopy on an aliased per-skill path is a no-op: the "directory"
+// there is the canonical tree seen through a parent symlink, so removing it
+// would destroy the real skill.
+func TestRemoveLinkOrCopyAliasedParentIsNoOp(t *testing.T) {
+	dir := t.TempDir()
+	link, canonical := mkAliasedSkillsDir(t, dir, "pdf")
+
+	if err := RemoveLinkOrCopy(link, canonical, false); err != nil {
+		t.Fatalf("RemoveLinkOrCopy aliased: %v", err)
+	}
+	if _, err := os.Lstat(canonical); err != nil {
+		t.Errorf("canonical removed or altered: %v", err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(canonical, "SKILL.md")); string(data) != "# pdf" {
+		t.Errorf("canonical content = %q, want intact", data)
+	}
+}
+
+// A genuine per-skill symlink already pointing at the right target
+// EvalSymlinks-equals the canonical tree too, but it is one of our links, so
+// the alias short-circuit must NOT fire: LinkDir replaces it and the result
+// is still a symlink.
+func TestLinkDirOverExistingCorrectSymlink(t *testing.T) {
+	dir := t.TempDir()
+	canonical := filepath.Join(dir, "canonical")
+	mkTree(t, canonical, "# pdf")
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(canonical, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LinkDir(link, canonical, false); err != nil {
+		t.Fatalf("LinkDir over correct symlink: %v", err)
+	}
+	if ok, err := IsLink(link); err != nil || !ok {
+		t.Errorf("link not a symlink after re-link: %v, %v", ok, err)
+	}
+}
+
 // TestRunLinkChainFallsBack verifies the fallback chain tries strategies in
 // order, stops at the first success, and reports which strategy won. This is
 // the platform-independent decision logic; the Windows chain (symlink →
