@@ -17,23 +17,19 @@ for where this is headed.
 
 ## Install
 
-With a Go toolchain (works today):
+```sh
+npm install -g skiletto
+# or
+pip install skiletto
+```
+
+Or download a prebuilt binary for your platform from the
+[releases page](https://github.com/kumekay/skiletto/releases), or build from
+source with a Go toolchain:
 
 ```sh
 go install github.com/kumekay/skiletto@latest
 ```
-
-Prebuilt binaries and the `npm` / `pip` wrappers land with the first tagged
-release:
-
-```sh
-npm install -g skiletto     # coming with the first release
-pip install skiletto        # coming with the first release
-```
-
-Or download a binary for your platform from the
-[releases page](https://github.com/kumekay/skiletto/releases) (coming with the
-first release).
 
 ## Usage
 

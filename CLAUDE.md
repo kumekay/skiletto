@@ -22,6 +22,16 @@ substantial.
 - Commit messages and PR bodies: imperative, describe the change, nothing
   else. No tool attribution, no generated-by lines, no co-author trailers.
 
+## Releases
+
+- To release: confirm CI is green on main, then push a version tag
+  (`git tag vX.Y.Z && git push origin vX.Y.Z`). Never tag ahead of green CI.
+- The tag triggers the release workflow: goreleaser builds the binaries and
+  creates the GitHub release, then the wrappers publish to PyPI (trusted
+  publishing) and npm (`NPM_TOKEN` secret). Every release must end with all
+  three verified: the GitHub release exists and the new version is live on
+  PyPI and npm.
+
 ## Easy to miss
 
 - **Keep the wiki in sync.** Any change to file formats, CLI behavior, the
