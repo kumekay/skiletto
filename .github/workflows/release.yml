@@ -1,13 +1,10 @@
 name: Release
 
 # Runs on version tags (e.g. v0.1.0). goreleaser builds the binaries and
-# creates the GitHub release unconditionally. PyPI publishes via trusted
-# publishing (OIDC), so it needs no secret and always runs on tag pushes.
-# The npm publish step is gated on its token being present as a repository
-# secret:
-#   - NPM_TOKEN   enables `npm publish`
-# Without the token, the npm publish step is skipped, not failed, so the
-# workflow stays green.
+# creates the GitHub release unconditionally. PyPI and npm both publish via
+# trusted publishing (OIDC), so no secrets are needed; both publishers must
+# be configured to trust this workflow file (pypi.org and npmjs.com package
+# settings). npm provenance is generated automatically.
 
 on:
   push:
@@ -42,13 +39,15 @@ jobs:
   npm:
     needs: goreleaser
     runs-on: ubuntu-latest
-    env:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
+      # Trusted publishing needs npm >= 11.5.1; Node 24 bundles it.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
       - name: Set package version from tag
         working-directory: packaging/npm
@@ -57,11 +56,8 @@ jobs:
         working-directory: packaging/npm
         run: node --test
       - name: Publish to npm
-        if: ${{ env.NPM_TOKEN != '' }}
         working-directory: packaging/npm
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   pypi:
     needs: goreleaser

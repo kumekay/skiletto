@@ -27,10 +27,10 @@ substantial.
 - To release: confirm CI is green on main, then push a version tag
   (`git tag vX.Y.Z && git push origin vX.Y.Z`). Never tag ahead of green CI.
 - The tag triggers the release workflow: goreleaser builds the binaries and
-  creates the GitHub release, then the wrappers publish to PyPI (trusted
-  publishing) and npm (`NPM_TOKEN` secret). Every release must end with all
-  three verified: the GitHub release exists and the new version is live on
-  PyPI and npm.
+  creates the GitHub release, then the wrappers publish to PyPI and npm, both
+  via trusted publishing (OIDC) — no registry secrets. Every release must end
+  with all three verified: the GitHub release exists and the new version is
+  live on PyPI and npm.
 
 ## Easy to miss
 
