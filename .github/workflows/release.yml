@@ -44,6 +44,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      # npm always packs a root README.md; reuse the repo one.
+      - name: Include repo README
+        run: cp README.md packaging/npm/README.md
       # Trusted publishing needs npm >= 11.5.1; Node 24 bundles it.
       - uses: actions/setup-node@v4
         with:
