@@ -258,15 +258,22 @@ func TestLoadHooks(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsUnknownHook(t *testing.T) {
+// Unknown hook names must not fail parsing: a manifest written by a newer
+// skiletto would otherwise brick every command in the scope. They are
+// validated where hooks are consulted (the engine), so installs still fail
+// on a typo.
+func TestLoadKeepsUnknownHook(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "skiletto.toml")
 	content := "[hooks]\npost-install = \"echo done\"\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Load(path)
-	if err == nil || !strings.Contains(err.Error(), "post-install") || !strings.Contains(err.Error(), "pre-install") {
-		t.Errorf("want error naming the unknown hook and the supported ones, got %v", err)
+	m, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Hooks["post-install"]; got != "echo done" {
+		t.Errorf("post-install hook = %q, want %q", got, "echo done")
 	}
 }
 

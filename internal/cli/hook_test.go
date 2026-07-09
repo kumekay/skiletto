@@ -9,23 +9,42 @@ import (
 	"github.com/kumekay/skiletto/internal/manifest"
 )
 
-// failHook exits non-zero on every platform, even with the staged dir
-// appended as an argument.
+// failHook exits non-zero on every platform.
 const failHook = "git --skiletto-no-such-flag"
+
+// setMachineHook writes a pre-install hook into the machine manifest (the
+// only place hooks are honored) and restores the previous state afterwards,
+// so the shared test HOME stays clean for other tests.
+func setMachineHook(t *testing.T, command string) {
+	t.Helper()
+	path := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "skiletto", "skiletto.toml")
+	prev, err := os.ReadFile(path)
+	existed := err == nil
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if existed {
+			_ = os.WriteFile(path, prev, 0o644)
+		} else {
+			_ = os.Remove(path)
+		}
+	})
+	m, err := manifest.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Hooks = map[string]string{"pre-install": command}
+	if err := m.Save(path); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestAddNoHooksFlagBypassesFailingHook(t *testing.T) {
 	repo := makeSkillRepo(t, "pdf")
 	project := t.TempDir()
 	t.Chdir(project)
-
-	m := &manifest.Manifest{
-		Harnesses: []string{},
-		Hooks:     map[string]string{"pre-install": failHook},
-		Skills:    map[string]manifest.Entry{},
-	}
-	if err := m.Save(filepath.Join(project, "skiletto.toml")); err != nil {
-		t.Fatal(err)
-	}
+	setMachineHook(t, failHook)
 
 	_, _, err := run(t, "add", repo+"//skills/pdf")
 	if err == nil || !strings.Contains(err.Error(), "pre-install hook") {
@@ -47,14 +66,7 @@ func TestSyncAndUpdateAcceptNoHooksFlag(t *testing.T) {
 	if _, stderr, err := run(t, "add", repo+"//skills/pdf"); err != nil {
 		t.Fatalf("add: %v\n%s", err, stderr)
 	}
-	m, err := manifest.Load(filepath.Join(project, "skiletto.toml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	m.Hooks = map[string]string{"pre-install": failHook}
-	if err := m.Save(filepath.Join(project, "skiletto.toml")); err != nil {
-		t.Fatal(err)
-	}
+	setMachineHook(t, failHook)
 
 	if _, stderr, err := run(t, "update", "--no-hooks"); err != nil {
 		t.Fatalf("update --no-hooks: %v\n%s", err, stderr)

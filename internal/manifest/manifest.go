@@ -26,14 +26,12 @@ type Manifest struct {
 	// populates. nil means the key is absent (not yet configured); an
 	// explicit empty list means "canonical dir only".
 	Harnesses []string `toml:"harnesses"`
-	// Hooks maps hook names to shell commands. The only supported hook is
-	// "pre-install"; Load rejects other names.
+	// Hooks maps hook names to shell commands. Names are not validated
+	// here — a manifest from a newer skiletto must still parse — but the
+	// engine rejects unknown names wherever hooks are consulted.
 	Hooks  map[string]string `toml:"hooks,omitempty"`
 	Skills map[string]Entry  `toml:"skills"`
 }
-
-// knownHooks lists the hook names Load accepts.
-var knownHooks = map[string]bool{"pre-install": true}
 
 // Load reads the manifest at path. A missing file yields an empty manifest.
 func Load(path string) (*Manifest, error) {
@@ -50,11 +48,6 @@ func Load(path string) (*Manifest, error) {
 	}
 	if m.Skills == nil {
 		m.Skills = map[string]Entry{}
-	}
-	for name := range m.Hooks {
-		if !knownHooks[name] {
-			return nil, fmt.Errorf("parse %s: unknown hook %q; supported hooks: pre-install", path, name)
-		}
 	}
 	return &m, nil
 }

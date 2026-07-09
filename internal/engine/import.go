@@ -33,7 +33,10 @@ func (e *Engine) Import(lockPath string, force bool) error {
 	if err != nil {
 		return err
 	}
-	hook := e.preInstallHook(m)
+	hook, err := e.preInstallHook(m)
+	if err != nil {
+		return err
+	}
 
 	imported := 0
 	installFailures := 0
@@ -49,7 +52,12 @@ func (e *Engine) Import(lockPath string, force bool) error {
 		}
 		entry := manifest.Entry{Source: mp.Source, Path: mp.Path, Ref: mp.Ref}
 		if err := e.applyFetch(mp.Name, entry, lf, force, enabled, hook, "import"); err != nil {
-			e.cleanupFailedAdd(mp.Name, false)
+			// A hook rejection happens before anything installed is
+			// touched — a pre-existing tree must survive it.
+			var rejected *HookRejectedError
+			if !errors.As(err, &rejected) {
+				e.cleanupFailedAdd(mp.Name, false)
+			}
 			installFailures++
 			_, _ = fmt.Fprintf(e.Err, "error: %s: %v\n", mp.Name, importError(err, mp.Source))
 			continue

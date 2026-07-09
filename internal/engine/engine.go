@@ -235,7 +235,10 @@ func (e *Engine) installedHash(name string) (string, bool) {
 // happens; the returned error only summarizes how many skills had
 // problems. event names the invoking command for the pre-install hook.
 func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan, force bool, enabled []adapter.Adapter, event string) error {
-	hook := e.preInstallHook(m)
+	hook, err := e.preInstallHook(m)
+	if err != nil {
+		return err
+	}
 	failures := 0
 	lockChanged := false
 	for _, act := range plan.Actions {
@@ -379,8 +382,9 @@ func (e *Engine) ensureEditable(name string, entry manifest.Entry, force bool, e
 // contain exactly one skill, and promotes that skill directory to the
 // canonical location. It returns the content hash and the skill's
 // effective subpath within the source. hook, when non-nil, runs against
-// the staged content before anything installed is touched; its error
-// aborts the install with the previous content still in place.
+// the staged content before it is hashed and before anything installed is
+// touched; its error aborts the install with the previous content still in
+// place.
 //
 // Adapter links are removed after staging succeeds and before promotion,
 // while the canonical tree still has its pre-update content: a copy-linked
@@ -394,14 +398,16 @@ func (e *Engine) install(name string, src source.Source, commit, subpath string,
 		return "", "", err
 	}
 	defer cleanup()
-	hash, err = skill.Hash(staged)
-	if err != nil {
-		return "", "", err
-	}
 	if hook != nil {
 		if err := hook(staged); err != nil {
 			return "", "", err
 		}
+	}
+	// Hash after the hook: a hook that rewrites staged content must not
+	// lock a hash the promoted tree no longer matches.
+	hash, err = skill.Hash(staged)
+	if err != nil {
+		return "", "", err
 	}
 	if err := e.unlinkAll(name, force, enabled); err != nil {
 		return "", "", err
