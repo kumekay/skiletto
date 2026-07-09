@@ -36,8 +36,10 @@ type Engine struct {
 	// note.
 	PromptHarnesses func([]HarnessOption) ([]string, error)
 	NewSource       func(src string) (source.Source, error)
-	Out             io.Writer
-	Err             io.Writer
+	// NoHooks disables the pre-install hook for this run (--no-hooks).
+	NoHooks bool
+	Out     io.Writer
+	Err     io.Writer
 }
 
 // New returns a production engine for the scope: system git sources and
@@ -122,7 +124,7 @@ func (e *Engine) Sync(force bool) error {
 		return err
 	}
 	plan := e.planSync(m, lf, force)
-	return e.apply(m, lf, plan, force, enabled)
+	return e.apply(m, lf, plan, force, enabled, "sync")
 }
 
 func (e *Engine) load() (*manifest.Manifest, *lockfile.Lockfile, error) {
@@ -231,15 +233,16 @@ func (e *Engine) installedHash(name string) (string, bool) {
 
 // apply executes a plan. Every failure is reported once, on e.Err as it
 // happens; the returned error only summarizes how many skills had
-// problems.
-func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan, force bool, enabled []adapter.Adapter) error {
+// problems. event names the invoking command for the pre-install hook.
+func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan, force bool, enabled []adapter.Adapter, event string) error {
+	hook := e.preInstallHook(m)
 	failures := 0
 	lockChanged := false
 	for _, act := range plan.Actions {
 		var err error
 		switch act.Kind {
 		case ActionFetch:
-			if err = e.applyFetch(act.Name, m.Skills[act.Name], lf, force, enabled); err == nil {
+			if err = e.applyFetch(act.Name, m.Skills[act.Name], lf, force, enabled, hook, event); err == nil {
 				lockChanged = true
 			}
 		case ActionMaterialize:
@@ -275,7 +278,7 @@ func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan, f
 }
 
 // applyFetch resolves a manifest entry, installs it, and locks it.
-func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lockfile, force bool, enabled []adapter.Adapter) error {
+func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lockfile, force bool, enabled []adapter.Adapter, hook, event string) error {
 	if entry.Editable {
 		if err := e.ensureEditable(name, entry, force, enabled); err != nil {
 			return err
@@ -293,7 +296,10 @@ func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lock
 	if err != nil {
 		return err
 	}
-	hash, _, err := e.install(name, src, commit, entry.Path, force, enabled)
+	preInstall := func(staged string) error {
+		return e.runPreInstall(hook, name, entry.Source, commit, event, staged)
+	}
+	hash, _, err := e.install(name, src, commit, entry.Path, force, enabled, preInstall)
 	if err != nil {
 		// An ambiguous source reached through the manifest is fixed by
 		// setting path on the entry, not by re-running add.
@@ -319,7 +325,7 @@ func (e *Engine) applyMaterialize(name string, locked lockfile.Skill, force bool
 	if err != nil {
 		return err
 	}
-	hash, _, err := e.install(name, src, locked.Commit, locked.Path, force, enabled)
+	hash, _, err := e.install(name, src, locked.Commit, locked.Path, force, enabled, nil)
 	if err != nil {
 		return err
 	}
@@ -372,7 +378,9 @@ func (e *Engine) ensureEditable(name string, entry manifest.Entry, force bool, e
 // install fetches subpath at commit into a staging area, requires it to
 // contain exactly one skill, and promotes that skill directory to the
 // canonical location. It returns the content hash and the skill's
-// effective subpath within the source.
+// effective subpath within the source. hook, when non-nil, runs against
+// the staged content before anything installed is touched; its error
+// aborts the install with the previous content still in place.
 //
 // Adapter links are removed after staging succeeds and before promotion,
 // while the canonical tree still has its pre-update content: a copy-linked
@@ -380,7 +388,7 @@ func (e *Engine) ensureEditable(name string, entry manifest.Entry, force bool, e
 // would refuse its own pristine copies. A diverged copy makes the unlink
 // fail here (unless force), before the canonical tree or the lock move —
 // nothing is left half-updated.
-func (e *Engine) install(name string, src source.Source, commit, subpath string, force bool, enabled []adapter.Adapter) (hash, effPath string, err error) {
+func (e *Engine) install(name string, src source.Source, commit, subpath string, force bool, enabled []adapter.Adapter, hook func(staged string) error) (hash, effPath string, err error) {
 	staged, effPath, cleanup, err := e.stage(src, commit, subpath)
 	if err != nil {
 		return "", "", err
@@ -389,6 +397,11 @@ func (e *Engine) install(name string, src source.Source, commit, subpath string,
 	hash, err = skill.Hash(staged)
 	if err != nil {
 		return "", "", err
+	}
+	if hook != nil {
+		if err := hook(staged); err != nil {
+			return "", "", err
+		}
 	}
 	if err := e.unlinkAll(name, force, enabled); err != nil {
 		return "", "", err

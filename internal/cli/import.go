@@ -35,5 +35,7 @@ func newImportCmd() *cobra.Command {
 		"overwrite installed skills that import cannot prove pristine (drifted lock orphans or unmanaged trees)")
 	cmd.Flags().BoolVarP(&global, "global", "g", false,
 		"write the machine-scope manifest and lock (config dir, skills under ~/.agents/skills) instead of the current project")
+	cmd.Flags().Bool("no-hooks", false,
+		"skip the pre-install hook configured under [hooks] in skiletto.toml")
 	return cmd
 }

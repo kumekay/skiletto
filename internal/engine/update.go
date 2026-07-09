@@ -30,7 +30,7 @@ func (e *Engine) Update(name string, force bool) error {
 		return err
 	}
 	plan := e.planUpdate(m, lf, names, force)
-	return e.apply(m, lf, plan, force, enabled)
+	return e.apply(m, lf, plan, force, enabled, "update")
 }
 
 // updateTargets returns the manifest names to update: all of them (sorted)

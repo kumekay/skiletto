@@ -279,6 +279,9 @@ func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *l
 	if err != nil {
 		return err
 	}
+	if err := e.runPreInstall(e.preInstallHook(m), name, spec.Source, commit, "add", staged); err != nil {
+		return err
+	}
 	if err := e.promote(staged, name); err != nil {
 		return err
 	}

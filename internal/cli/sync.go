@@ -27,5 +27,7 @@ func newSyncCmd() *cobra.Command {
 		"restore drifted skills to their locked version and allow pruning them")
 	cmd.Flags().BoolVarP(&global, "global", "g", false,
 		"operate on the machine-scope manifest and lock instead of the current project")
+	cmd.Flags().Bool("no-hooks", false,
+		"skip the pre-install hook when resolving entries that are not locked yet")
 	return cmd
 }

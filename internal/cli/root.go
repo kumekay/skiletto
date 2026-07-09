@@ -67,6 +67,11 @@ func engineFor(cmd *cobra.Command, global bool) (*engine.Engine, error) {
 	}
 	noInput, _ := cmd.Flags().GetBool("no-input")
 	eng.PromptHarnesses = harnessPrompter(noInput)
+	// Only commands that can install new content define --no-hooks; for the
+	// rest the lookup errors and the default (hooks on) stands.
+	if noHooks, err := cmd.Flags().GetBool("no-hooks"); err == nil {
+		eng.NoHooks = noHooks
+	}
 	eng.Out = cmd.OutOrStdout()
 	eng.Err = cmd.ErrOrStderr()
 	return eng, nil

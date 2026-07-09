@@ -32,5 +32,7 @@ func newUpdateCmd() *cobra.Command {
 		"overwrite drifted skills with the freshly re-resolved version")
 	cmd.Flags().BoolVarP(&global, "global", "g", false,
 		"operate on the machine-scope manifest and lock instead of the current project")
+	cmd.Flags().Bool("no-hooks", false,
+		"skip the pre-install hook configured under [hooks] in skiletto.toml")
 	return cmd
 }
