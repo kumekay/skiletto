@@ -25,8 +25,12 @@ type Manifest struct {
 	// Harnesses lists the harness adapters whose link dirs this scope
 	// populates. nil means the key is absent (not yet configured); an
 	// explicit empty list means "canonical dir only".
-	Harnesses []string         `toml:"harnesses"`
-	Skills    map[string]Entry `toml:"skills"`
+	Harnesses []string `toml:"harnesses"`
+	// Hooks maps hook names to shell commands. Names are not validated
+	// here — a manifest from a newer skiletto must still parse — but the
+	// engine rejects unknown names wherever hooks are consulted.
+	Hooks  map[string]string `toml:"hooks,omitempty"`
+	Skills map[string]Entry  `toml:"skills"`
 }
 
 // Load reads the manifest at path. A missing file yields an empty manifest.
@@ -58,6 +62,18 @@ func (m *Manifest) Save(path string) error {
 			quoted[i] = tomlString(h)
 		}
 		fmt.Fprintf(&b, "harnesses = [%s]\n\n", strings.Join(quoted, ", "))
+	}
+	if len(m.Hooks) > 0 {
+		b.WriteString("[hooks]\n")
+		hooks := make([]string, 0, len(m.Hooks))
+		for name := range m.Hooks {
+			hooks = append(hooks, name)
+		}
+		sort.Strings(hooks)
+		for _, name := range hooks {
+			fmt.Fprintf(&b, "%s = %s\n", tomlKey(name), tomlString(m.Hooks[name]))
+		}
+		b.WriteString("\n")
 	}
 	b.WriteString("[skills]\n")
 	names := make([]string, 0, len(m.Skills))

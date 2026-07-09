@@ -153,6 +153,67 @@ skiletto sync -g
   prompting, skiletto fails with an actionable error listing the flags that
   script the choice. A set `CI` env var implies it.
 
+## Pre-install hook
+
+skiletto can run a security scanner — or any command — over a skill's
+content before it is installed. Configure it under `[hooks]` in the
+**machine-scope** manifest (`~/.config/skiletto/skiletto.toml` on Linux):
+
+```toml
+[hooks]
+pre-install = 'skillspector scan --no-llm "$SKILETTO_SKILL_DIR"'
+```
+
+- The command runs after the skill's content is fetched into a staging
+  directory and before anything is installed or locked. The staged directory
+  is exported as `SKILETTO_SKILL_DIR` — reference it in the command
+  (`"$SKILETTO_SKILL_DIR"`; `%SKILETTO_SKILL_DIR%` on Windows) — alongside
+  `SKILETTO_SKILL_NAME`, `SKILETTO_SOURCE`, `SKILETTO_COMMIT`, and
+  `SKILETTO_EVENT` (`add`, `update`, `sync`, or `import`). Exit 0 lets the
+  install proceed; any other exit aborts it with nothing changed — on disk,
+  in the manifest, or in the lock.
+- The hook gates content entering the lock: it runs on `add`, `update`,
+  `import`, and on `sync` only for manifest entries that are not locked yet.
+  Re-installing already-locked content (`sync` materializing from the lock)
+  skips it — the lock's content hash guarantees those are byte-for-byte the
+  contents that were scanned when the entry was locked. Editable skills are
+  never scanned: their working tree changes after any scan.
+- Hooks run only from the machine manifest, and it applies in every
+  project. A `[hooks]` table in a project's `skiletto.toml` is ignored with
+  a warning: hooks execute arbitrary commands, so a cloned repository must
+  not be able to supply one — or to replace your scanner. `--no-hooks` (on
+  `add`/`sync`/`update`/`import`) skips the hook for one run.
+- The gate fails closed: an unreadable machine manifest or an unknown name
+  under `[hooks]` makes installs fail rather than silently skipping the
+  hook.
+- The command runs through `sh` (`cmd.exe` on Windows), so it can carry its
+  own flags and environment variables.
+
+### Example: scanning skills with SkillSpector
+
+[SkillSpector](https://github.com/NVIDIA/skillspector) is NVIDIA's security
+scanner for agent skills. Its exit codes fit the hook contract directly:
+0 (safe or caution), 1 (do not install), 2 (scan error) — so a risky skill
+blocks the install. Install it once with uv:
+
+```sh
+uv tool install git+https://github.com/NVIDIA/skillspector.git
+```
+
+The `[hooks]` entry above runs its static analysis: fast, offline, and the
+skill's contents never leave your machine. For the full scan with LLM
+semantic analysis, use the `claude_cli` provider — it drives your locally
+installed, already-authenticated `claude` CLI, so no API key is configured
+anywhere:
+
+```toml
+[hooks]
+pre-install = 'SKILLSPECTOR_PROVIDER=claude_cli skillspector scan "$SKILETTO_SKILL_DIR"'
+```
+
+Note that LLM analysis sends the scanned skill's file contents to the model
+provider; keep `--no-llm` if they must stay local.
+
 ## Windows
 
 Linking a skill into a harness dir tries three strategies in order:

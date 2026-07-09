@@ -71,8 +71,12 @@ func (e *Engine) Add(spec manifest.SourceSpec, editable bool) error {
 	if err != nil {
 		return err
 	}
+	hook, err := e.preInstallHook(m)
+	if err != nil {
+		return err
+	}
 	e.warnPathSource(spec)
-	if err := e.addOne(spec, editable, m, lf, enabled); err != nil {
+	if err := e.addOne(spec, editable, m, lf, enabled, hook); err != nil {
 		return err
 	}
 	return e.saveBoth(m, lf)
@@ -114,11 +118,15 @@ func (e *Engine) addSubpaths(spec manifest.SourceSpec, subpaths []string, editab
 	if err != nil {
 		return err
 	}
+	hook, err := e.preInstallHook(m)
+	if err != nil {
+		return err
+	}
 	added, failures := 0, 0
 	for _, sub := range subpaths {
 		s := spec
 		s.Path = sub
-		if err := e.addOne(s, editable, m, lf, enabled); err != nil {
+		if err := e.addOne(s, editable, m, lf, enabled, hook); err != nil {
 			failures++
 			_, _ = fmt.Fprintf(e.Err, "error: %s: %v\n", sub, err)
 			continue
@@ -137,11 +145,12 @@ func (e *Engine) addSubpaths(spec manifest.SourceSpec, subpaths []string, editab
 }
 
 // addOne dispatches a single-skill install to the editable or pinned path.
-func (e *Engine) addOne(spec manifest.SourceSpec, editable bool, m *manifest.Manifest, lf *lockfile.Lockfile, enabled []adapter.Adapter) error {
+// hook is the resolved pre-install command; editable installs never run it.
+func (e *Engine) addOne(spec manifest.SourceSpec, editable bool, m *manifest.Manifest, lf *lockfile.Lockfile, enabled []adapter.Adapter, hook string) error {
 	if editable {
 		return e.addEditable(spec, m, lf, enabled)
 	}
-	return e.addPinned(spec, m, lf, enabled)
+	return e.addPinned(spec, m, lf, enabled, hook)
 }
 
 // discover lists the skill subpaths of a source without installing them,
@@ -251,7 +260,7 @@ func (e *Engine) addEditable(spec manifest.SourceSpec, m *manifest.Manifest, lf 
 // addPinned resolves the spec's ref to a commit (via ls-remote for URLs,
 // locally for path sources, which must be git repositories), installs the
 // pinned content, and locks commit and hash.
-func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *lockfile.Lockfile, enabled []adapter.Adapter) error {
+func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *lockfile.Lockfile, enabled []adapter.Adapter, hook string) error {
 	src, err := e.NewSource(spec.Source)
 	if err != nil {
 		return err
@@ -275,6 +284,11 @@ func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *l
 	if _, exists := m.Skills[name]; exists {
 		return fmt.Errorf("skill %q is already in the manifest; edit skiletto.toml to rename or remove it first", name)
 	}
+	if err := e.runPreInstall(hook, name, spec.Source, commit, "add", staged); err != nil {
+		return err
+	}
+	// Hash after the hook: a hook that rewrites staged content (sanitizer,
+	// formatter) must not lock a hash the promoted tree no longer matches.
 	hash, err := skill.Hash(staged)
 	if err != nil {
 		return err

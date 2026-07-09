@@ -86,6 +86,8 @@ func newAddCmd() *cobra.Command {
 		"install for the whole machine (config dir manifest, skills under ~/.agents/skills) instead of the current project")
 	cmd.Flags().BoolVar(&all, "all", false,
 		"install every skill discovered in the source without prompting")
+	cmd.Flags().Bool("no-hooks", false,
+		"skip the pre-install hook configured under [hooks] in skiletto.toml")
 	return cmd
 }
 
