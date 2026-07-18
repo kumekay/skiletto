@@ -22,6 +22,7 @@ func TestMain(m *testing.M) {
 	}
 	_ = os.Setenv("HOME", home)
 	_ = os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	_ = os.Unsetenv("SKILETTO_CONFIG_DIR")
 	code := m.Run()
 	_ = os.RemoveAll(home)
 	os.Exit(code)
@@ -307,6 +308,29 @@ func setMachineHome(t *testing.T) (home, config string) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", config)
 	return home, config
+}
+
+// SKILETTO_CONFIG_DIR points directly at the directory holding the
+// machine-scope manifest and lock, taking precedence over XDG_CONFIG_HOME
+// (which gets a "skiletto" subdirectory appended).
+func TestConfigDirEnvOverridesXDG(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf")
+	_, config := setMachineHome(t)
+	cfgDir := filepath.Join(t.TempDir(), "custom-config")
+	t.Setenv("SKILETTO_CONFIG_DIR", cfgDir)
+	t.Chdir(t.TempDir())
+
+	if _, stderr, err := run(t, "add", "--global", repo+"//skills/pdf"); err != nil {
+		t.Fatalf("add --global: %v\n%s", err, stderr)
+	}
+	for _, f := range []string{"skiletto.toml", "skiletto.lock"} {
+		if _, err := os.Stat(filepath.Join(cfgDir, f)); err != nil {
+			t.Errorf("missing %s in SKILETTO_CONFIG_DIR: %v", f, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(config, "skiletto")); !os.IsNotExist(err) {
+		t.Errorf("XDG config dir was used despite SKILETTO_CONFIG_DIR (stat err: %v)", err)
+	}
 }
 
 func TestAddAndSyncGlobalRoundTrip(t *testing.T) {
