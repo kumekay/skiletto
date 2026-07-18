@@ -58,6 +58,25 @@ func TestAddNoHooksFlagBypassesFailingHook(t *testing.T) {
 	}
 }
 
+func TestVerboseFlagAnnouncesHook(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf")
+	project := t.TempDir()
+	t.Chdir(project)
+	setMachineHook(t, "cd .")
+
+	if _, stderr, err := run(t, "add", repo+"//skills/pdf"); err != nil {
+		t.Fatalf("add: %v\n%s", err, stderr)
+	} else if strings.Contains(stderr, "pre-install hook") {
+		t.Errorf("hook announced without --verbose:\n%s", stderr)
+	}
+
+	if _, stderr, err := run(t, "update", "-v"); err != nil {
+		t.Fatalf("update -v: %v\n%s", err, stderr)
+	} else if !strings.Contains(stderr, "pre-install hook") || !strings.Contains(stderr, "pdf") {
+		t.Errorf("--verbose did not announce the hook run:\n%s", stderr)
+	}
+}
+
 func TestSyncAndUpdateAcceptNoHooksFlag(t *testing.T) {
 	repo := makeSkillRepo(t, "pdf")
 	project := t.TempDir()

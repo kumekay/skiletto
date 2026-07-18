@@ -71,6 +71,9 @@ func (e *Engine) runPreInstall(command, name, src, commit, event, dir string) er
 	if command == "" {
 		return nil
 	}
+	if e.Verbose {
+		_, _ = fmt.Fprintf(e.Err, "running pre-install hook for %s (%s)\n", name, event)
+	}
 	cmd := hookCmd(command)
 	cmd.Env = append(cmd.Environ(),
 		"SKILETTO_SKILL_DIR="+dir,
