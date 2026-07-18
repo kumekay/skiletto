@@ -38,6 +38,9 @@ type Engine struct {
 	NewSource       func(src string) (source.Source, error)
 	// NoHooks disables the pre-install hook for this run (--no-hooks).
 	NoHooks bool
+	// Verbose emits extra diagnostics to Err, such as a line for each
+	// pre-install hook run (--verbose).
+	Verbose bool
 	Out     io.Writer
 	Err     io.Writer
 }

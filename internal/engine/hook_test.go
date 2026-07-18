@@ -323,6 +323,38 @@ func TestMutatingHookDoesNotCauseDrift(t *testing.T) {
 	}
 }
 
+// Verbose mode announces each hook run, naming the skill and the event, so
+// an otherwise-silent hook still confirms it was picked up and ran.
+func TestVerboseAnnouncesHook(t *testing.T) {
+	f := newFixture(t, pdfSource())
+	f.setMachineHook(t, "cd .")
+	f.eng.Verbose = true
+
+	spec := manifest.SourceSpec{Source: "https://github.com/o/r", Path: "skills/pdf", Ref: "main"}
+	if err := f.eng.Add(spec, false); err != nil {
+		t.Fatal(err)
+	}
+	got := f.errOut.String()
+	if !strings.Contains(got, "pre-install hook") || !strings.Contains(got, "pdf") || !strings.Contains(got, "add") {
+		t.Errorf("verbose did not announce the hook run:\n%s", got)
+	}
+}
+
+// Without verbose, a successful hook run stays silent: no diagnostic line is
+// written for it.
+func TestHookRunSilentWithoutVerbose(t *testing.T) {
+	f := newFixture(t, pdfSource())
+	f.setMachineHook(t, "cd .")
+
+	spec := manifest.SourceSpec{Source: "https://github.com/o/r", Path: "skills/pdf", Ref: "main"}
+	if err := f.eng.Add(spec, false); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(f.errOut.String(), "pre-install hook") {
+		t.Errorf("hook run announced without --verbose:\n%s", f.errOut.String())
+	}
+}
+
 // A hook rejection during import must not destroy a pre-existing installed
 // tree: install() aborts before touching it, so import has nothing to
 // clean up.

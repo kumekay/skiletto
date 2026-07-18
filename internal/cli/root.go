@@ -30,6 +30,10 @@ func newRootCmd() *cobra.Command {
 	}
 	cmd.PersistentFlags().Bool("no-input", false,
 		"never prompt; where a prompt would appear, fail with an actionable error listing the flags to script the choice (implied when the CI env var is set)")
+	// Registering the -v shorthand here keeps cobra's auto --version flag
+	// long-only, so -v means verbose consistently on every command.
+	cmd.PersistentFlags().BoolP("verbose", "v", false,
+		"print extra diagnostics, including a line for each pre-install hook run")
 	cmd.AddCommand(newAddCmd())
 	cmd.AddCommand(newSyncCmd())
 	cmd.AddCommand(newUpdateCmd())
@@ -67,6 +71,7 @@ func engineFor(cmd *cobra.Command, global bool) (*engine.Engine, error) {
 	}
 	noInput, _ := cmd.Flags().GetBool("no-input")
 	eng.PromptHarnesses = harnessPrompter(noInput)
+	eng.Verbose, _ = cmd.Flags().GetBool("verbose")
 	// Only commands that can install new content define --no-hooks; for the
 	// rest the lookup errors and the default (hooks on) stands.
 	if noHooks, err := cmd.Flags().GetBool("no-hooks"); err == nil {

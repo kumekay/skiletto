@@ -152,6 +152,9 @@ skiletto sync -g
 - `--no-input` (on any command) forces the non-interactive path: instead of
   prompting, skiletto fails with an actionable error listing the flags that
   script the choice. A set `CI` env var implies it.
+- `--verbose` / `-v` (on any command) prints extra diagnostics to stderr,
+  including a line for each pre-install hook run naming the skill and the
+  event. Because `-v` means verbose, `--version` has no shorthand.
 
 ## Pre-install hook
 
