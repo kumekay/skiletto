@@ -5,6 +5,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -96,7 +97,10 @@ func sameDir(a, b string) bool {
 // dirs from the environment (HOME / XDG_CONFIG_HOME) so it can be
 // redirected in tests and by end users. The env is honored on every
 // platform; where it is unset the OS defaults apply (%USERPROFILE% and
-// %AppData% on Windows, ~ and ~/.config on Linux).
+// %AppData% on Windows, ~ and ~/.config on Linux). SKILETTO_CONFIG_DIR
+// takes precedence over both: it names the directory holding the
+// machine-scope manifest and lock directly, with no "skiletto"
+// subdirectory appended.
 func machineScope() (scope.Scope, error) {
 	home := os.Getenv("HOME")
 	if home == "" {
@@ -104,6 +108,12 @@ func machineScope() (scope.Scope, error) {
 		if home, err = os.UserHomeDir(); err != nil {
 			return scope.Scope{}, err
 		}
+	}
+	if dir := os.Getenv("SKILETTO_CONFIG_DIR"); dir != "" {
+		s := scope.Machine(home, "")
+		s.ManifestPath = filepath.Join(dir, "skiletto.toml")
+		s.LockPath = filepath.Join(dir, "skiletto.lock")
+		return s, nil
 	}
 	config := os.Getenv("XDG_CONFIG_HOME")
 	if config == "" {

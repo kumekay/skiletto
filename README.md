@@ -143,7 +143,10 @@ skiletto sync -g
   commit/hash and are never drift-checked.
 - `--global` / `-g` (on any command) switches to the machine scope: the
   manifest and lock live in the platform config dir (`~/.config/skiletto/`
-  on Linux), skills materialize in `~/.agents/skills/`, and the Claude
+  on Linux; `XDG_CONFIG_HOME` is honored on every platform). Setting
+  `SKILETTO_CONFIG_DIR` overrides both: it names the directory holding the
+  machine-scope manifest and lock directly, no `skiletto/` subdirectory
+  appended. Skills materialize in `~/.agents/skills/`, and the Claude
   adapter links into `~/.claude/skills/`. Local path and editable sources
   are the normal case here, so `add` skips the portability warning. The
   machine scope is always explicit: running in your home directory without
