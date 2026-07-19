@@ -60,6 +60,7 @@ func (e *MultipleSkillsError) Error() string {
 // *MultipleSkillsError so the caller can run a picker and re-drive the add
 // with AddSelected.
 func (e *Engine) Add(spec manifest.SourceSpec, editable bool) error {
+	defer e.progressClear()
 	if err := validateAdd(spec, editable); err != nil {
 		return err
 	}
@@ -86,6 +87,7 @@ func (e *Engine) Add(spec manifest.SourceSpec, editable bool) error {
 // choices a picker returned), recording and saving them together. Each
 // subpath is a skill directory relative to the source root.
 func (e *Engine) AddSelected(spec manifest.SourceSpec, subpaths []string, editable bool) error {
+	defer e.progressClear()
 	if err := validateAdd(spec, editable); err != nil {
 		return err
 	}
@@ -95,6 +97,7 @@ func (e *Engine) AddSelected(spec manifest.SourceSpec, subpaths []string, editab
 // AddAll discovers every skill in the source and installs them all, without
 // prompting. It is the engine side of the --all flag.
 func (e *Engine) AddAll(spec manifest.SourceSpec, editable bool) error {
+	defer e.progressClear()
 	if err := validateAdd(spec, editable); err != nil {
 		return err
 	}
@@ -170,10 +173,12 @@ func (e *Engine) discoverPinned(spec manifest.SourceSpec) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	e.progressStep(specLabel(spec), "resolving")
 	commit, err := src.Resolve(spec.Ref)
 	if err != nil {
 		return nil, err
 	}
+	e.progressStep(specLabel(spec), "fetching")
 	_, effPath, cleanup, err := e.stage(src, commit, spec.Path)
 	if err != nil {
 		var multi *MultipleSkillsError
@@ -204,6 +209,15 @@ func (e *Engine) discoverEditable(spec manifest.SourceSpec) ([]string, error) {
 		subs[i] = joinSubpath(spec.Path, d)
 	}
 	return subs, nil
+}
+
+// specLabel names a spec in progress output: the skill subpath when one
+// is picked (distinct per skill under --all), the source otherwise.
+func specLabel(spec manifest.SourceSpec) string {
+	if spec.Path != "" {
+		return spec.Path
+	}
+	return spec.Source
 }
 
 // validateAdd rejects flag combinations that cannot install anything.
@@ -265,10 +279,12 @@ func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *l
 	if err != nil {
 		return err
 	}
+	e.progressStep(specLabel(spec), "resolving")
 	commit, err := src.Resolve(spec.Ref)
 	if err != nil {
 		return err
 	}
+	e.progressStep(specLabel(spec), "fetching")
 	staged, effPath, cleanup, err := e.stage(src, commit, spec.Path)
 	if err != nil {
 		var multi *MultipleSkillsError

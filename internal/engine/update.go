@@ -17,6 +17,7 @@ import (
 // entries have nothing to re-resolve and are skipped with a note. A drifted
 // installed tree is not overwritten without force.
 func (e *Engine) Update(name string, force bool) error {
+	defer e.progressClear()
 	m, lf, err := e.load()
 	if err != nil {
 		return err
