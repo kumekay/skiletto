@@ -131,6 +131,30 @@ func TestAddAllReportsDiscoveryProgress(t *testing.T) {
 	}
 }
 
+func TestAddAllClearsProgressBeforeHarnessPrompt(t *testing.T) {
+	f := newFixture(t, pdfSource())
+	// No harnesses key anywhere: the one-time interactive picker fires.
+	mm := &manifest.Manifest{Skills: map[string]manifest.Entry{}}
+	if err := mm.Save(f.eng.Machine.ManifestPath); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recordingProgress{}
+	f.eng.Progress = rec
+	var atPrompt []string
+	f.eng.PromptHarnesses = func([]HarnessOption) ([]string, error) {
+		atPrompt = append([]string(nil), rec.events...)
+		return []string{"fake"}, nil
+	}
+
+	spec := manifest.SourceSpec{Source: "https://github.com/o/r", Ref: "main"}
+	if err := f.eng.AddAll(spec, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(atPrompt) == 0 || atPrompt[len(atPrompt)-1] != "clear" {
+		t.Errorf("progress events when the picker opened = %v, want a trailing clear", atPrompt)
+	}
+}
+
 func TestNilProgressIsSilent(t *testing.T) {
 	f := newFixture(t, pdfSource())
 	f.writeManifest(t, &manifest.Manifest{Skills: map[string]manifest.Entry{"pdf": pdfEntry()}})

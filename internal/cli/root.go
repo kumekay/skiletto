@@ -81,7 +81,7 @@ func engineFor(cmd *cobra.Command, global bool) (*engine.Engine, error) {
 	}
 	eng.Out = cmd.OutOrStdout()
 	eng.Err = cmd.ErrOrStderr()
-	if progressEnabled(ui.IsTerminalFile(os.Stderr), noInput, os.Getenv("CI")) {
+	if progressEnabled(ui.IsTerminalFile(os.Stderr), noInput, os.Getenv("CI")) && ui.EnableVT(os.Stderr) {
 		p := ui.NewProgress(os.Stderr)
 		eng.Progress = p
 		// Route the engine's streams through the renderer so errors, notes,

@@ -37,6 +37,9 @@ func (e *Engine) resolveHarnesses(m *manifest.Manifest, allowPrompt bool) ([]ada
 
 	if !configured {
 		if allowPrompt && e.PromptHarnesses != nil {
+			// AddAll discovers (with progress) before resolving harnesses:
+			// a transient status line must not linger above the picker.
+			e.progressClear()
 			chosen, err := e.PromptHarnesses(e.harnessOptions())
 			if err != nil {
 				return nil, err
