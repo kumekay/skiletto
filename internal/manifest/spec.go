@@ -39,12 +39,28 @@ func ParseSourceSpec(spec string) (SourceSpec, error) {
 		scheme, rest = rest[:i+3], rest[i+3:]
 	}
 
+	// A pasted browser URL gets special treatment before the generic ref
+	// split: its path may contain @ segments (npm-style @scope dirs), and
+	// the browser can append #fragment or ?query residue.
+	browser := isBrowserURL(scheme, rest)
+	if browser {
+		if i := strings.IndexAny(rest, "#?"); i >= 0 {
+			rest = rest[:i]
+		}
+	}
+
 	// A ref separator is the last "@" that comes after the first "/"
 	// (an earlier "@" belongs to the user info of ssh/scp-style sources).
+	// In a browser URL only an @ strictly inside the final segment counts:
+	// anything earlier is a path segment, and a leading @ names a dir.
 	ref := ""
 	if at := strings.LastIndex(rest, "@"); at >= 0 {
 		slash := strings.Index(rest, "/")
-		if slash >= 0 && at > slash || slash < 0 && !strings.Contains(rest, ":") {
+		split := slash >= 0 && at > slash || slash < 0 && !strings.Contains(rest, ":")
+		if browser {
+			split = at > strings.LastIndex(rest, "/")+1
+		}
+		if split {
 			ref = rest[at+1:]
 			rest = rest[:at]
 		}
@@ -80,29 +96,45 @@ func ParseSourceSpec(spec string) (SourceSpec, error) {
 	return s, nil
 }
 
+// isBrowserURL reports whether the spec (split into scheme and the rest,
+// before any ref or subdir splitting) looks like a pasted github.com
+// /tree/ or /blob/ browser URL.
+func isBrowserURL(scheme, rest string) bool {
+	if scheme != "" && scheme != "https://" {
+		return false
+	}
+	seg := strings.Split(strings.Trim(rest, "/"), "/")
+	return len(seg) >= 5 && seg[0] == "github.com" && (seg[3] == "tree" || seg[3] == "blob")
+}
+
 // normalizeTreeURL rewrites a pasted github.com browser URL
-// (https://github.com/owner/repo/tree/<ref>[/<path>]) into the canonical
-// repo URL plus Ref and Path. The ref is assumed to be a single segment:
-// a ref containing "/" cannot be split from the path without asking the
-// remote, so it fails later at resolve time with a hint (see TreeURL).
+// (https://github.com/owner/repo/tree/<ref>[/<path>], or /blob/ pointing
+// at a file, whose directory is taken) into the canonical repo URL plus
+// Ref and Path. The ref is assumed to be a single segment: a ref
+// containing "/" cannot be split from the path without asking the remote,
+// so it fails later at resolve time with a hint (see TreeURL).
 func normalizeTreeURL(s *SourceSpec) error {
 	const prefix = "https://github.com/"
 	if s.IsPath || !strings.HasPrefix(s.Source, prefix) {
 		return nil
 	}
 	seg := strings.Split(strings.Trim(strings.TrimPrefix(s.Source, prefix), "/"), "/")
-	if len(seg) < 4 || seg[2] != "tree" {
+	if len(seg) < 4 || seg[2] != "tree" && seg[2] != "blob" {
 		return nil
 	}
 	if s.Ref != "" {
-		return fmt.Errorf("%s already names ref %q in /tree/; an extra @%s is contradictory", s.Source, seg[3], s.Ref)
+		return fmt.Errorf("%s already names ref %q in /%s/; an extra @%s is contradictory", s.Source, seg[3], seg[2], s.Ref)
 	}
 	if s.Path != "" {
-		return fmt.Errorf("%s already contains the path after /tree/<ref>/; an extra //%s is contradictory", s.Source, s.Path)
+		return fmt.Errorf("%s already contains the path after /%s/<ref>/; an extra //%s is contradictory", s.Source, seg[2], s.Path)
+	}
+	sub := seg[4:]
+	if seg[2] == "blob" && len(sub) > 0 {
+		sub = sub[:len(sub)-1]
 	}
 	s.Source = prefix + seg[0] + "/" + seg[1]
 	s.Ref = seg[3]
-	s.Path = strings.Join(seg[4:], "/")
+	s.Path = strings.Join(sub, "/")
 	s.TreeURL = true
 	return nil
 }

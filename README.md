@@ -92,11 +92,14 @@ skiletto sync -g
   the `CI` env var is set — it instead prints the skills and the exact
   `//path` (or `--skill`/`--all`) commands to script the choice, and exits
   non-zero, so scripts and CI never hang on a prompt.
-- A pasted GitHub browser URL (`https://github.com/owner/repo/tree/<ref>/<path>`)
-  is normalized to the canonical `repo//path@ref` form at `add` time. The
-  ref is taken to be the single segment after `/tree/`; for a ref that
-  itself contains `/`, spell the source out as `repo//path@ref`. Symlinks
-  inside a fetched source are recreated as symlinks, never followed.
+- A pasted GitHub browser URL (`https://github.com/owner/repo/tree/<ref>/<path>`,
+  or a `/blob/` link to a file such as `SKILL.md`, which maps to the file's
+  directory) is normalized to the canonical `repo//path@ref` form at `add`
+  time. The ref is taken to be the single segment after `/tree/`; for a
+  ref that itself contains `/`, spell the source out as `repo//path@ref`.
+  Symlinks inside a fetched source are recreated as symlinks, never
+  followed (the content hash covers the link target string, not what it
+  points at).
 - `sync` installs exactly what the lock pins and resolves+locks manifest
   entries that are not locked yet. It never re-resolves already-locked
   versions. Skills with local modifications (drift) are warned about and

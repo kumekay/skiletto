@@ -216,12 +216,45 @@ func (g *Git) Extract(url, commit, subdir, dest string) error {
 
 	src := tmp
 	if subdir != "" {
-		src = filepath.Join(tmp, filepath.FromSlash(subdir))
+		sub, err := g.resolveSubdirLinks(tmp, subdir)
+		if err != nil {
+			return err
+		}
+		src = filepath.Join(tmp, filepath.FromSlash(sub))
 		if _, err := os.Stat(src); err != nil {
 			return fmt.Errorf("path %q not found in %s at %s", subdir, url, commit)
 		}
 	}
 	return copyTree(src, dest)
+}
+
+// resolveSubdirLinks follows a subdir that is itself a symlink (a harness
+// mirror like .agents/skills/x -> ../../skills/x) to its real path inside
+// the checkout, widening the sparse cone so the target is materialized. A
+// link escaping the repository is an error.
+func (g *Git) resolveSubdirLinks(tmp, subdir string) (string, error) {
+	sub := filepath.FromSlash(subdir)
+	for range 4 {
+		fi, err := os.Lstat(filepath.Join(tmp, sub))
+		if err != nil || fi.Mode()&fs.ModeSymlink == 0 {
+			return sub, nil
+		}
+		target, err := os.Readlink(filepath.Join(tmp, sub))
+		if err != nil {
+			return "", err
+		}
+		resolved := filepath.Clean(filepath.Join(filepath.Dir(sub), filepath.FromSlash(target)))
+		if filepath.IsAbs(target) || resolved == ".." || strings.HasPrefix(resolved, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("path %q is a symlink to %q, which leaves the repository", subdir, target)
+		}
+		if g.sparse {
+			if _, err := g.run(tmp, "sparse-checkout", "set", filepath.ToSlash(resolved)); err != nil {
+				return "", err
+			}
+		}
+		sub = resolved
+	}
+	return "", fmt.Errorf("path %q is a symlink chain deeper than 4 links", subdir)
 }
 
 // firstSHA returns the SHA of the first ls-remote output line.

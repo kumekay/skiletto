@@ -228,6 +228,35 @@ func TestParseSourceSpec(t *testing.T) {
 			SourceSpec{Source: "https://github.com/anthropics/tree"},
 		},
 		{
+			// @ inside a path segment is not a ref separator in browser URLs.
+			"https://github.com/anthropics/skills/tree/main/skills/@scope/pkg",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/@scope/pkg", Ref: "main", TreeURL: true},
+		},
+		{
+			// Nor is a final segment that starts with @.
+			"https://github.com/anthropics/skills/tree/main/skills/@scope",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/@scope", Ref: "main", TreeURL: true},
+		},
+		{
+			// A /blob/ URL (a pasted SKILL.md link) maps to the file's directory.
+			"https://github.com/anthropics/skills/blob/main/skills/pdf/SKILL.md",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/pdf", Ref: "main", TreeURL: true},
+		},
+		{
+			// A root-level /blob/ file pins the repo root.
+			"https://github.com/anthropics/skills/blob/main/SKILL.md",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Ref: "main", TreeURL: true},
+		},
+		{
+			// Fragment and query residue from the browser is dropped.
+			"https://github.com/anthropics/skills/tree/main/skills/pdf#readme",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/pdf", Ref: "main", TreeURL: true},
+		},
+		{
+			"https://github.com/anthropics/skills/blob/main/skills/pdf/SKILL.md?plain=1",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/pdf", Ref: "main", TreeURL: true},
+		},
+		{
 			"./my-skills//my-skill",
 			SourceSpec{Source: "./my-skills", Path: "my-skill", IsPath: true},
 		},

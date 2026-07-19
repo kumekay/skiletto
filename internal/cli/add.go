@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kumekay/skiletto/internal/engine"
-	"github.com/kumekay/skiletto/internal/gitcli"
 	"github.com/kumekay/skiletto/internal/manifest"
 	"github.com/kumekay/skiletto/internal/ui"
 )
@@ -52,6 +51,9 @@ func newAddCmd() *cobra.Command {
 				return err
 			}
 			if all && spec.Path != "" {
+				if spec.TreeURL {
+					return fmt.Errorf("--all installs every skill in the source, but the /tree/ URL already picks %q; drop the path from the URL", spec.Path)
+				}
 				return fmt.Errorf("--all installs every skill in the source and cannot be combined with an explicit //path (%q)", spec.Path)
 			}
 			eng, err := engineFor(cmd, global)
@@ -59,16 +61,16 @@ func newAddCmd() *cobra.Command {
 				return err
 			}
 			if all {
-				return treeURLHint(spec, eng.AddAll(spec, editable))
+				return eng.AddAll(spec, editable)
 			}
 			if len(skills) > 0 {
-				return treeURLHint(spec, eng.AddSkills(spec, skills, editable))
+				return eng.AddSkills(spec, skills, editable)
 			}
 
 			err = eng.Add(spec, editable)
 			var multi *engine.MultipleSkillsError
 			if !errors.As(err, &multi) {
-				return treeURLHint(spec, err)
+				return err
 			}
 
 			noInput, _ := cmd.Flags().GetBool("no-input")
@@ -121,17 +123,6 @@ func absolutizePathSource(spec *manifest.SourceSpec) error {
 	}
 	spec.Source = abs
 	return nil
-}
-
-// treeURLHint augments a ref-not-found failure on a spec parsed from a
-// pasted /tree/ URL: the ref was taken to be the single segment after
-// /tree/, so a ref containing "/" cannot resolve and the explicit
-// repo//path@ref form is the way out.
-func treeURLHint(spec manifest.SourceSpec, err error) error {
-	if err == nil || !spec.TreeURL || !errors.Is(err, gitcli.ErrRefNotFound) {
-		return err
-	}
-	return fmt.Errorf("%w\na ref containing \"/\" cannot be told apart from the path in a /tree/ URL; spell it out as %s//<path>@<ref>", err, spec.Source)
 }
 
 // pickerOptions turns the discovered skills into picker options, each

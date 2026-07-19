@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -268,6 +269,106 @@ func TestAddSkillFlagAmbiguousNameSuggestsPath(t *testing.T) {
 	}
 }
 
+func TestAddSkillFlagUnknownNameDedupesAvailable(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf", "web")
+	dir := filepath.Join(repo, "extra", "pdf")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# other pdf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, repo, "add", ".")
+	gitT(t, repo, "commit", "-q", "-m", "duplicate name")
+	t.Chdir(t.TempDir())
+
+	_, _, err := run(t, "add", "--skill", "nope", repo)
+	if err == nil {
+		t.Fatal("want an error for an unknown skill name")
+	}
+	msg := err.Error()
+	avail := msg[strings.Index(msg, "available"):]
+	if n := strings.Count(avail, "pdf"); n != 1 {
+		t.Errorf("duplicate name listed %d times, want once:\n%s", n, msg)
+	}
+}
+
+// The ambiguous-name suggestions must be complete commands: an --editable
+// add keeps the flag, or the suggested command would do a pinned install.
+func TestAddSkillFlagAmbiguousEditableKeepsFlag(t *testing.T) {
+	src := t.TempDir()
+	for _, sub := range []string{"a/pdf", "b/pdf"} {
+		dir := filepath.Join(src, sub)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# pdf"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(t.TempDir())
+
+	_, _, err := run(t, "add", "--editable", "--skill", "pdf", src)
+	if err == nil {
+		t.Fatal("want an error for an ambiguous skill name")
+	}
+	if !strings.Contains(err.Error(), "--editable") {
+		t.Errorf("suggestions dropped --editable:\n%s", err)
+	}
+}
+
+func TestAddSkillFlagEditableInstallsNamed(t *testing.T) {
+	src := t.TempDir()
+	for _, name := range []string{"pdf", "web"} {
+		dir := filepath.Join(src, "skills", name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# "+name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	project := t.TempDir()
+	t.Chdir(project)
+
+	if _, stderr, err := run(t, "add", "--editable", "--skill", "pdf", src); err != nil {
+		t.Fatalf("add --editable --skill: %v\n%s", err, stderr)
+	}
+	if !skillInstalled(project, "pdf") {
+		t.Error("pdf not installed")
+	}
+	if skillInstalled(project, "web") {
+		t.Error("web installed despite --skill pdf")
+	}
+	data, _ := os.ReadFile(filepath.Join(project, "skiletto.toml"))
+	if !strings.Contains(string(data), "editable = true") {
+		t.Errorf("manifest entry not editable:\n%s", data)
+	}
+}
+
+// The root skill of a source is addressed by the source's base name (the
+// same name the availability list and the picker print for it).
+func TestAddSkillFlagSelectsRootSkill(t *testing.T) {
+	repo := makeRootAndNestedRepo(t)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	name := filepath.Base(repo)
+	if _, stderr, err := run(t, "add", "--skill", name, repo); err != nil {
+		t.Fatalf("add --skill %s: %v\n%s", name, err, stderr)
+	}
+	if !skillInstalled(project, name) {
+		t.Errorf("root skill %q not installed", name)
+	}
+	if skillInstalled(project, "pdf") {
+		t.Error("nested skill installed despite --skill naming the root")
+	}
+	data, _ := os.ReadFile(filepath.Join(project, "skiletto.toml"))
+	if !strings.Contains(string(data), `path = "."`) {
+		t.Errorf("root skill entry missing path \".\":\n%s", data)
+	}
+}
+
 func TestAddNoInputMentionsSkillFlag(t *testing.T) {
 	repo := makeSkillRepo(t, "pdf", "web")
 	t.Chdir(t.TempDir())
@@ -278,6 +379,61 @@ func TestAddNoInputMentionsSkillFlag(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--skill") {
 		t.Errorf("no-input error should mention --skill:\n%s", err)
+	}
+}
+
+// A skill containing a symlink whose target lies outside the skill subtree
+// must add cleanly via //path and stay converged on sync: the lock hash is
+// computed over the link target string, not the content behind it, so the
+// staged and installed copies always agree (reviewer scenario for the
+// symlink-preserving fetch).
+func TestAddSkillWithOutOfTreeSymlinkConverges(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+	repo := makeSkillRepo(t, "pdf")
+	if err := os.WriteFile(filepath.Join(repo, "LICENSE"), []byte("MIT"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../LICENSE", filepath.Join(repo, "skills", "pdf", "LICENSE")); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, repo, "add", ".")
+	gitT(t, repo, "commit", "-q", "-m", "symlinked license")
+	project := t.TempDir()
+	t.Chdir(project)
+
+	if _, stderr, err := run(t, "add", repo+"//skills/pdf"); err != nil {
+		t.Fatalf("add: %v\n%s", err, stderr)
+	}
+	link := filepath.Join(project, ".agents", "skills", "pdf", "LICENSE")
+	if target, err := os.Readlink(link); err != nil || target != "../../LICENSE" {
+		t.Errorf("installed LICENSE not a symlink to ../../LICENSE: %q, %v", target, err)
+	}
+	for i := range 2 {
+		if _, stderr, err := run(t, "sync"); err != nil {
+			t.Fatalf("sync #%d: %v\n%s", i+1, err, stderr)
+		}
+	}
+	if _, _, err := run(t, "list"); err != nil {
+		t.Errorf("list: %v", err)
+	}
+}
+
+// --all with a /tree/ URL that carries a path must not blame a //path the
+// user never typed; the error names the URL's path instead.
+func TestAddAllWithTreeURLExplainsConflict(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	_, _, err := run(t, "add", "--all", "https://github.com/o/r/tree/main/skills")
+	if err == nil {
+		t.Fatal("want an error combining --all with a /tree/ URL path")
+	}
+	if !strings.Contains(err.Error(), "/tree/") {
+		t.Errorf("error should mention the /tree/ URL:\n%s", err)
+	}
+	if strings.Contains(err.Error(), "//path") {
+		t.Errorf("error blames //path the user never typed:\n%s", err)
 	}
 }
 

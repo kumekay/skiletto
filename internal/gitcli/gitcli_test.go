@@ -280,6 +280,44 @@ func TestExtractRecreatesSymlinks(t *testing.T) {
 	}
 }
 
+// TestExtractSymlinkedSubdir proves a subdir that is itself a symlink
+// (skiletto add repo//.agents/skills/pdf against a mirror layout) resolves
+// to its target instead of failing, in both sparse and full-clone modes.
+func TestExtractSymlinkedSubdir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+	repo, _, _ := makeRepo(t)
+	if err := os.MkdirAll(filepath.Join(repo, ".agents", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../skills/pdf", filepath.Join(repo, ".agents", "skills", "pdf")); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, repo, "add", ".")
+	gitT(t, repo, "commit", "-q", "-m", "mirror")
+	tip := gitT(t, repo, "rev-parse", "HEAD")
+
+	for name, mutate := range map[string]func(*Git){
+		"sparse": func(*Git) {},
+		"full":   func(g *Git) { g.sparse = false; g.shaFetch = false },
+	} {
+		g, _ := New()
+		mutate(g)
+		dest := filepath.Join(t.TempDir(), "out-"+name)
+		if err := g.Extract(repo, tip, ".agents/skills/pdf", dest); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		data, err := os.ReadFile(filepath.Join(dest, "SKILL.md"))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if string(data) != "# pdf v2" {
+			t.Errorf("%s: content = %q, want %q", name, data, "# pdf v2")
+		}
+	}
+}
+
 func TestExtractFullCloneFallback(t *testing.T) {
 	repo, old, _ := makeRepo(t)
 	g, _ := New()

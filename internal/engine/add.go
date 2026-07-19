@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/kumekay/skiletto/internal/adapter"
+	"github.com/kumekay/skiletto/internal/gitcli"
 	"github.com/kumekay/skiletto/internal/lockfile"
 	"github.com/kumekay/skiletto/internal/manifest"
 	"github.com/kumekay/skiletto/internal/scope"
@@ -52,6 +53,17 @@ func (e *MultipleSkillsError) Error() string {
 		}
 	}
 	return b.String()
+}
+
+// resolveRefErr augments a ref-not-found failure for a spec parsed from a
+// pasted /tree/ URL: the ref was taken to be the single segment after
+// /tree/, so a ref containing "/" cannot resolve and the explicit
+// repo//path@ref form is the way out. Every other error passes through.
+func resolveRefErr(spec manifest.SourceSpec, err error) error {
+	if !spec.TreeURL || !errors.Is(err, gitcli.ErrRefNotFound) {
+		return err
+	}
+	return fmt.Errorf("%w\na ref containing \"/\" cannot be told apart from the path in a /tree/ URL; spell it out as %s//<path>@<ref>", err, spec.Source)
 }
 
 // Add resolves a parsed source spec, installs the skill it names, links
@@ -128,7 +140,9 @@ func (e *Engine) AddSkills(spec manifest.SourceSpec, names []string, editable bo
 	for _, sub := range subpaths {
 		n := skill.DefaultName(spec.Source, sub)
 		byName[n] = append(byName[n], sub)
-		available = append(available, n)
+		if len(byName[n]) == 1 {
+			available = append(available, n)
+		}
 	}
 	seen := map[string]bool{}
 	var picked []string
@@ -147,8 +161,12 @@ func (e *Engine) AddSkills(spec manifest.SourceSpec, names []string, editable bo
 		default:
 			var b strings.Builder
 			fmt.Fprintf(&b, "skill name %q matches %d skills in %s; pick one with //path:", name, len(subs), spec.Source)
+			flag := ""
+			if editable {
+				flag = "--editable "
+			}
 			for _, sub := range subs {
-				fmt.Fprintf(&b, "\n  skiletto add %s//%s", spec.Source, sub)
+				fmt.Fprintf(&b, "\n  skiletto add %s%s//%s", flag, spec.Source, sub)
 				if spec.Ref != "" {
 					fmt.Fprintf(&b, "@%s", spec.Ref)
 				}
@@ -226,7 +244,7 @@ func (e *Engine) discoverPinned(spec manifest.SourceSpec) ([]string, error) {
 	e.progressStep(specLabel(spec), "resolving")
 	commit, err := src.Resolve(spec.Ref)
 	if err != nil {
-		return nil, err
+		return nil, resolveRefErr(spec, err)
 	}
 	e.progressStep(specLabel(spec), "fetching")
 	_, effPath, cleanup, err := e.stage(src, commit, spec.Path)
@@ -332,7 +350,7 @@ func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *l
 	e.progressStep(specLabel(spec), "resolving")
 	commit, err := src.Resolve(spec.Ref)
 	if err != nil {
-		return err
+		return resolveRefErr(spec, err)
 	}
 	e.progressStep(specLabel(spec), "fetching")
 	staged, effPath, cleanup, err := e.stage(src, commit, spec.Path)
