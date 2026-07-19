@@ -201,6 +201,63 @@ func TestParseSourceSpec(t *testing.T) {
 			SourceSpec{Source: "git@github.com:anthropics/skills.git", Path: "skills/pdf"},
 		},
 		{
+			"https://github.com/anthropics/skills/tree/main/skills/pdf",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/pdf", Ref: "main", TreeURL: true},
+		},
+		{
+			"https://github.com/anthropics/skills/tree/main",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Ref: "main", TreeURL: true},
+		},
+		{
+			"https://github.com/anthropics/skills/tree/main/skills/pdf/",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/pdf", Ref: "main", TreeURL: true},
+		},
+		{
+			"github.com/anthropics/skills/tree/main/skills/pdf",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/pdf", Ref: "main", TreeURL: true},
+		},
+		{
+			// Only github.com gets /tree/ normalization; other hosts keep
+			// their URL untouched.
+			"https://example.com/anthropics/skills/tree/main/skills/pdf",
+			SourceSpec{Source: "https://example.com/anthropics/skills/tree/main/skills/pdf"},
+		},
+		{
+			// A repo path that merely ends in /tree is not a browser URL.
+			"https://github.com/anthropics/tree",
+			SourceSpec{Source: "https://github.com/anthropics/tree"},
+		},
+		{
+			// @ inside a path segment is not a ref separator in browser URLs.
+			"https://github.com/anthropics/skills/tree/main/skills/@scope/pkg",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/@scope/pkg", Ref: "main", TreeURL: true},
+		},
+		{
+			// Nor is a final segment that starts with @.
+			"https://github.com/anthropics/skills/tree/main/skills/@scope",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/@scope", Ref: "main", TreeURL: true},
+		},
+		{
+			// A /blob/ URL (a pasted SKILL.md link) maps to the file's directory.
+			"https://github.com/anthropics/skills/blob/main/skills/pdf/SKILL.md",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/pdf", Ref: "main", TreeURL: true},
+		},
+		{
+			// A root-level /blob/ file pins the repo root: explicit ".",
+			// since "" would mean whole-source discovery.
+			"https://github.com/anthropics/skills/blob/main/SKILL.md",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: ".", Ref: "main", TreeURL: true},
+		},
+		{
+			// Fragment and query residue from the browser is dropped.
+			"https://github.com/anthropics/skills/tree/main/skills/pdf#readme",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/pdf", Ref: "main", TreeURL: true},
+		},
+		{
+			"https://github.com/anthropics/skills/blob/main/skills/pdf/SKILL.md?plain=1",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/pdf", Ref: "main", TreeURL: true},
+		},
+		{
 			"./my-skills//my-skill",
 			SourceSpec{Source: "./my-skills", Path: "my-skill", IsPath: true},
 		},
@@ -240,6 +297,20 @@ func TestParseSourceSpec(t *testing.T) {
 func TestParseSourceSpecRejectsEmpty(t *testing.T) {
 	if _, err := ParseSourceSpec(""); err == nil {
 		t.Error("want error for empty spec")
+	}
+}
+
+// A /tree/ URL already carries a ref and a path; combining it with an
+// explicit @ref or //path is contradictory and must be rejected, not
+// guessed at.
+func TestParseSourceSpecTreeURLConflicts(t *testing.T) {
+	for _, spec := range []string{
+		"https://github.com/anthropics/skills/tree/main/skills/pdf@v2",
+		"https://github.com/anthropics/skills/tree/main//skills/pdf",
+	} {
+		if _, err := ParseSourceSpec(spec); err == nil {
+			t.Errorf("ParseSourceSpec(%q): want error for /tree/ URL combined with @ref or //path", spec)
+		}
 	}
 }
 

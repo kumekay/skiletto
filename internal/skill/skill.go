@@ -58,7 +58,10 @@ func DefaultName(source, subpath string) string {
 
 // Hash returns a deterministic content hash ("sha256:<hex>") of the tree
 // rooted at dir: sha256 over the sorted relative file paths and their
-// contents.
+// contents. A symlink contributes its target string, never the content
+// behind it — the hash must be a pure function of the tree itself, or the
+// staged and promoted copies of a skill whose links resolve elsewhere
+// would hash differently.
 func Hash(dir string) (string, error) {
 	var files []string
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
@@ -82,15 +85,26 @@ func Hash(dir string) (string, error) {
 
 	h := sha256.New()
 	for _, rel := range files {
-		f, err := os.Open(filepath.Join(dir, filepath.FromSlash(rel)))
-		if err != nil {
-			return "", err
-		}
+		p := filepath.Join(dir, filepath.FromSlash(rel))
 		_, _ = fmt.Fprintf(h, "%s\x00", rel)
-		_, err = io.Copy(h, f)
-		_ = f.Close()
-		if err != nil {
+		if fi, err := os.Lstat(p); err != nil {
 			return "", err
+		} else if fi.Mode()&fs.ModeSymlink != 0 {
+			target, err := os.Readlink(p)
+			if err != nil {
+				return "", err
+			}
+			_, _ = fmt.Fprintf(h, "symlink:%s", filepath.ToSlash(target))
+		} else {
+			f, err := os.Open(p)
+			if err != nil {
+				return "", err
+			}
+			_, err = io.Copy(h, f)
+			_ = f.Close()
+			if err != nil {
+				return "", err
+			}
 		}
 		h.Write([]byte{0})
 	}

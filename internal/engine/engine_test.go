@@ -249,6 +249,39 @@ func TestSyncNeverReResolvesLockedEntries(t *testing.T) {
 	}
 }
 
+// A locked hash that can no longer be reproduced (e.g. locked by an older
+// skiletto whose hashing differed for this tree) must fail with a way out
+// — naming `skiletto update` — not a bare mismatch.
+func TestSyncHashMismatchSuggestsUpdate(t *testing.T) {
+	f := newFixture(t, pdfSource())
+	f.writeManifest(t, &manifest.Manifest{Skills: map[string]manifest.Entry{"pdf": pdfEntry()}})
+	if err := f.eng.Sync(false); err != nil {
+		t.Fatal(err)
+	}
+	lf := f.readLock(t)
+	s := lf.Find("pdf")
+	s.Hash = "sha256:0000"
+	lf.Upsert(*s)
+	if err := lf.Save(f.scope.LockPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(f.scope.SkillDir("pdf")); err != nil {
+		t.Fatal(err)
+	}
+
+	err := f.eng.Sync(false)
+	if err == nil {
+		t.Fatal("want a hash mismatch error")
+	}
+	msg := err.Error() + f.errOut.String()
+	if !strings.Contains(msg, "does not match the locked hash") {
+		t.Errorf("mismatch not reported:\n%s", msg)
+	}
+	if !strings.Contains(msg, "skiletto update pdf") {
+		t.Errorf("no actionable way out of the mismatch:\n%s", msg)
+	}
+}
+
 func TestSyncDriftWarnsSkipsAndFails(t *testing.T) {
 	f := newFixture(t, pdfSource())
 	f.writeManifest(t, &manifest.Manifest{Skills: map[string]manifest.Entry{"pdf": pdfEntry()}})

@@ -65,7 +65,7 @@ type ErrPrompter struct{}
 // MultiSelect never prompts; it returns an actionable error.
 func (ErrPrompter) MultiSelect(_ string, options []Option) ([]string, error) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "source contains %d skills; pick one with //path, or pass --all to install every one:", len(options))
+	fmt.Fprintf(&b, "source contains %d skills; pick with //path or --skill <name>, or pass --all to install every one:", len(options))
 	for _, o := range options {
 		fmt.Fprintf(&b, "\n  %s", o.Hint)
 	}

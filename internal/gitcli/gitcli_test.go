@@ -1,9 +1,11 @@
 package gitcli
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -157,8 +159,12 @@ func TestResolveRemoteFullSHA(t *testing.T) {
 func TestResolveRemoteUnknownRef(t *testing.T) {
 	repo, _, _ := makeRepo(t)
 	g, _ := New()
-	if _, err := g.ResolveRemote(repo, "no-such-ref"); err == nil {
-		t.Error("want error for unknown ref")
+	_, err := g.ResolveRemote(repo, "no-such-ref")
+	if err == nil {
+		t.Fatal("want error for unknown ref")
+	}
+	if !errors.Is(err, ErrRefNotFound) {
+		t.Errorf("error %v does not wrap ErrRefNotFound", err)
 	}
 }
 
@@ -225,6 +231,90 @@ func TestExtractWholeRepo(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dest, ".git")); !os.IsNotExist(err) {
 		t.Error(".git leaked into extracted tree")
+	}
+}
+
+// TestExtractRecreatesSymlinks proves symlinks in the fetched tree are
+// recreated as symlinks: a directory symlink (harness mirror layout like
+// .agents/skills/x -> ../../skills/x) must not be opened as a file, and a
+// dangling link must not fail the copy.
+func TestExtractRecreatesSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+	repo, _, _ := makeRepo(t)
+	if err := os.MkdirAll(filepath.Join(repo, ".agents", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{
+		filepath.Join(".agents", "skills", "pdf"):      "../../skills/pdf",
+		filepath.Join(".agents", "skills", "dangling"): "../../skills/missing",
+		"README-link": "README.md",
+	} {
+		if err := os.Symlink(target, filepath.Join(repo, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitT(t, repo, "add", ".")
+	gitT(t, repo, "commit", "-q", "-m", "symlinks")
+	tip := gitT(t, repo, "rev-parse", "HEAD")
+
+	g, _ := New()
+	dest := filepath.Join(t.TempDir(), "out")
+	if err := g.Extract(repo, tip, "", dest); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{
+		filepath.Join(dest, ".agents", "skills", "pdf"):      "../../skills/pdf",
+		filepath.Join(dest, ".agents", "skills", "dangling"): "../../skills/missing",
+		filepath.Join(dest, "README-link"):                   "README.md",
+	} {
+		got, err := os.Readlink(link)
+		if err != nil {
+			t.Errorf("%s not recreated as a symlink: %v", link, err)
+			continue
+		}
+		if got != target {
+			t.Errorf("%s -> %q, want %q", link, got, target)
+		}
+	}
+}
+
+// TestExtractSymlinkedSubdir proves a subdir that is itself a symlink
+// (skiletto add repo//.agents/skills/pdf against a mirror layout) resolves
+// to its target instead of failing, in both sparse and full-clone modes.
+func TestExtractSymlinkedSubdir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on windows")
+	}
+	repo, _, _ := makeRepo(t)
+	if err := os.MkdirAll(filepath.Join(repo, ".agents", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../skills/pdf", filepath.Join(repo, ".agents", "skills", "pdf")); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, repo, "add", ".")
+	gitT(t, repo, "commit", "-q", "-m", "mirror")
+	tip := gitT(t, repo, "rev-parse", "HEAD")
+
+	for name, mutate := range map[string]func(*Git){
+		"sparse": func(*Git) {},
+		"full":   func(g *Git) { g.sparse = false; g.shaFetch = false },
+	} {
+		g, _ := New()
+		mutate(g)
+		dest := filepath.Join(t.TempDir(), "out-"+name)
+		if err := g.Extract(repo, tip, ".agents/skills/pdf", dest); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		data, err := os.ReadFile(filepath.Join(dest, "SKILL.md"))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if string(data) != "# pdf v2" {
+			t.Errorf("%s: content = %q, want %q", name, data, "# pdf v2")
+		}
 	}
 }
 

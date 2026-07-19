@@ -4,6 +4,7 @@
 package gitcli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -19,6 +20,10 @@ var (
 	versionRe = regexp.MustCompile(`git version (\d+)\.(\d+)`)
 	shaRe     = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
+
+// ErrRefNotFound marks a ref that ls-remote could not find, so callers can
+// distinguish a bad ref from transport failures.
+var ErrRefNotFound = errors.New("ref not found")
 
 // gitEnvBlocklist names GIT_* variables that pin git to a specific
 // repository, object store, or index. Git exports these into hook
@@ -151,7 +156,7 @@ func (g *Git) ResolveRemote(url, ref string) (string, error) {
 	if shaRe.MatchString(ref) {
 		return ref, nil
 	}
-	return "", fmt.Errorf("ref %q not found at %s", ref, url)
+	return "", fmt.Errorf("%w: %q at %s", ErrRefNotFound, ref, url)
 }
 
 // ResolveLocal resolves ref (default HEAD) to a full commit SHA against a
@@ -211,12 +216,46 @@ func (g *Git) Extract(url, commit, subdir, dest string) error {
 
 	src := tmp
 	if subdir != "" {
-		src = filepath.Join(tmp, filepath.FromSlash(subdir))
+		sub, err := g.resolveSubdirLinks(tmp, subdir)
+		if err != nil {
+			return err
+		}
+		src = filepath.Join(tmp, filepath.FromSlash(sub))
 		if _, err := os.Stat(src); err != nil {
 			return fmt.Errorf("path %q not found in %s at %s", subdir, url, commit)
 		}
 	}
 	return copyTree(src, dest)
+}
+
+// resolveSubdirLinks follows a subdir that is itself a symlink (a harness
+// mirror like .agents/skills/x -> ../../skills/x) to its real path inside
+// the checkout, widening the sparse cone so the target is materialized. A
+// link escaping the repository is an error. Only the leaf is resolved: a
+// symlink as an intermediate component of subdir stays unsupported.
+func (g *Git) resolveSubdirLinks(tmp, subdir string) (string, error) {
+	sub := filepath.FromSlash(subdir)
+	for range 4 {
+		fi, err := os.Lstat(filepath.Join(tmp, sub))
+		if err != nil || fi.Mode()&fs.ModeSymlink == 0 {
+			return sub, nil
+		}
+		target, err := os.Readlink(filepath.Join(tmp, sub))
+		if err != nil {
+			return "", err
+		}
+		resolved := filepath.Clean(filepath.Join(filepath.Dir(sub), filepath.FromSlash(target)))
+		if filepath.IsAbs(target) || resolved == ".." || strings.HasPrefix(resolved, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("path %q is a symlink to %q, which leaves the repository", subdir, target)
+		}
+		if g.sparse {
+			if _, err := g.run(tmp, "sparse-checkout", "set", filepath.ToSlash(resolved)); err != nil {
+				return "", err
+			}
+		}
+		sub = resolved
+	}
+	return "", fmt.Errorf("path %q is a symlink chain deeper than 4 links", subdir)
 }
 
 // firstSHA returns the SHA of the first ls-remote output line.
@@ -229,7 +268,9 @@ func firstSHA(out string) string {
 }
 
 // copyTree copies the directory tree at src to dest (which must not
-// exist), skipping any .git directory.
+// exist), skipping any .git directory. Symlinks are recreated as symlinks
+// (never followed): a link may point at a directory or even dangle, and
+// dereferencing would either fail or silently duplicate content.
 func copyTree(src, dest string) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -243,6 +284,13 @@ func copyTree(src, dest string) error {
 			return err
 		}
 		target := filepath.Join(dest, rel)
+		if d.Type()&fs.ModeSymlink != 0 {
+			linkTarget, err := os.Readlink(p)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(linkTarget, target)
+		}
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}

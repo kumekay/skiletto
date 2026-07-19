@@ -28,6 +28,7 @@ var promptSelector = func(noInput bool) ui.Prompter {
 
 func newAddCmd() *cobra.Command {
 	var editable, global, all bool
+	var skills []string
 	cmd := &cobra.Command{
 		Use:   "add <source>",
 		Short: "Add a skill: resolve, lock, install, and link it",
@@ -37,9 +38,9 @@ func newAddCmd() *cobra.Command {
 			"shorthand, or a local path (with --editable, the working tree is " +
 			"linked instead of copied).\n\n" +
 			"When the source holds several skills and no //path picks one, add shows " +
-			"a multi-select picker in a terminal; --all installs every skill, and " +
-			"without a TTY (or with --no-input) it prints the skills and the exact " +
-			"commands to script the choice.",
+			"a multi-select picker in a terminal; --skill <name> (repeatable) installs " +
+			"the named skills, --all installs every skill, and without a TTY (or with " +
+			"--no-input) it prints the skills and the exact commands to script the choice.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			spec, err := manifest.ParseSourceSpec(args[0])
@@ -50,6 +51,9 @@ func newAddCmd() *cobra.Command {
 				return err
 			}
 			if all && spec.Path != "" {
+				if spec.TreeURL {
+					return fmt.Errorf("--all installs every skill in the source, but the pasted /tree/ or /blob/ URL already picks %q; drop the path from the URL", spec.Path)
+				}
 				return fmt.Errorf("--all installs every skill in the source and cannot be combined with an explicit //path (%q)", spec.Path)
 			}
 			eng, err := engineFor(cmd, global)
@@ -58,6 +62,9 @@ func newAddCmd() *cobra.Command {
 			}
 			if all {
 				return eng.AddAll(spec, editable)
+			}
+			if len(skills) > 0 {
+				return eng.AddSkills(spec, skills, editable)
 			}
 
 			err = eng.Add(spec, editable)
@@ -86,6 +93,9 @@ func newAddCmd() *cobra.Command {
 		"install for the whole machine (config dir manifest, skills under ~/.agents/skills) instead of the current project")
 	cmd.Flags().BoolVar(&all, "all", false,
 		"install every skill discovered in the source without prompting")
+	cmd.Flags().StringArrayVar(&skills, "skill", nil,
+		"install the named skill without prompting (repeatable); //path narrows where to look")
+	cmd.MarkFlagsMutuallyExclusive("all", "skill")
 	cmd.Flags().Bool("no-hooks", false,
 		"skip the pre-install hook configured under [hooks] in skiletto.toml")
 	return cmd
