@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 )
@@ -128,13 +129,16 @@ func normalizeTreeURL(s *SourceSpec) error {
 	if s.Path != "" {
 		return fmt.Errorf("%s already contains the path after /%s/<ref>/; an extra //%s is contradictory", s.Source, seg[2], s.Path)
 	}
-	sub := seg[4:]
-	if seg[2] == "blob" && len(sub) > 0 {
-		sub = sub[:len(sub)-1]
-	}
 	s.Source = prefix + seg[0] + "/" + seg[1]
 	s.Ref = seg[3]
-	s.Path = strings.Join(sub, "/")
+	s.Path = strings.Join(seg[4:], "/")
+	if seg[2] == "blob" && s.Path != "" {
+		// A /blob/ URL points at a file; the skill is its directory. For a
+		// root-level file (a pasted link to the root SKILL.md) that is
+		// path.Dir's ".", which pins the source root — "" would mean
+		// whole-source discovery instead.
+		s.Path = path.Dir(s.Path)
+	}
 	s.TreeURL = true
 	return nil
 }

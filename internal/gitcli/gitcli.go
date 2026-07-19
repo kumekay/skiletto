@@ -231,7 +231,8 @@ func (g *Git) Extract(url, commit, subdir, dest string) error {
 // resolveSubdirLinks follows a subdir that is itself a symlink (a harness
 // mirror like .agents/skills/x -> ../../skills/x) to its real path inside
 // the checkout, widening the sparse cone so the target is materialized. A
-// link escaping the repository is an error.
+// link escaping the repository is an error. Only the leaf is resolved: a
+// symlink as an intermediate component of subdir stays unsupported.
 func (g *Git) resolveSubdirLinks(tmp, subdir string) (string, error) {
 	sub := filepath.FromSlash(subdir)
 	for range 4 {

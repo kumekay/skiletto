@@ -375,7 +375,7 @@ func (e *Engine) applyMaterialize(name string, locked lockfile.Skill, force bool
 		return err
 	}
 	if hash != locked.Hash {
-		return fmt.Errorf("content at commit %s does not match the locked hash", locked.Commit)
+		return fmt.Errorf("content at commit %s does not match the locked hash; 'skiletto update %s' re-resolves and re-locks it", locked.Commit, name)
 	}
 	if err := e.linkAll(name, force, enabled); err != nil {
 		return err

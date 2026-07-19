@@ -243,9 +243,10 @@ func TestParseSourceSpec(t *testing.T) {
 			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/pdf", Ref: "main", TreeURL: true},
 		},
 		{
-			// A root-level /blob/ file pins the repo root.
+			// A root-level /blob/ file pins the repo root: explicit ".",
+			// since "" would mean whole-source discovery.
 			"https://github.com/anthropics/skills/blob/main/SKILL.md",
-			SourceSpec{Source: "https://github.com/anthropics/skills", Ref: "main", TreeURL: true},
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: ".", Ref: "main", TreeURL: true},
 		},
 		{
 			// Fragment and query residue from the browser is dropped.

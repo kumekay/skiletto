@@ -52,7 +52,7 @@ func newAddCmd() *cobra.Command {
 			}
 			if all && spec.Path != "" {
 				if spec.TreeURL {
-					return fmt.Errorf("--all installs every skill in the source, but the /tree/ URL already picks %q; drop the path from the URL", spec.Path)
+					return fmt.Errorf("--all installs every skill in the source, but the pasted /tree/ or /blob/ URL already picks %q; drop the path from the URL", spec.Path)
 				}
 				return fmt.Errorf("--all installs every skill in the source and cannot be combined with an explicit //path (%q)", spec.Path)
 			}
