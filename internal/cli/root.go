@@ -13,6 +13,7 @@ import (
 	_ "github.com/kumekay/skiletto/internal/adapter/harness"
 	"github.com/kumekay/skiletto/internal/engine"
 	"github.com/kumekay/skiletto/internal/scope"
+	"github.com/kumekay/skiletto/internal/ui"
 )
 
 // version is the build version, reported by `skiletto --version`. It
@@ -80,7 +81,22 @@ func engineFor(cmd *cobra.Command, global bool) (*engine.Engine, error) {
 	}
 	eng.Out = cmd.OutOrStdout()
 	eng.Err = cmd.ErrOrStderr()
+	if progressEnabled(ui.IsTerminalFile(os.Stderr), noInput, os.Getenv("CI")) {
+		p := ui.NewProgress(os.Stderr)
+		eng.Progress = p
+		// Route the engine's streams through the renderer so errors, notes,
+		// and hook output never land mid-way through a transient status line.
+		eng.Out = p.Writer(eng.Out)
+		eng.Err = p.Writer(eng.Err)
+	}
 	return eng, nil
+}
+
+// progressEnabled reports whether per-skill progress may render: stderr
+// must be a terminal, and --no-input or a non-empty CI env var force the
+// plain (silent) output a script expects.
+func progressEnabled(stderrTTY, noInput bool, ci string) bool {
+	return stderrTTY && !noInput && ci == ""
 }
 
 // sameDir reports whether two paths name the same directory, comparing the

@@ -41,8 +41,42 @@ type Engine struct {
 	// Verbose emits extra diagnostics to Err, such as a line for each
 	// pre-install hook run (--verbose).
 	Verbose bool
-	Out     io.Writer
-	Err     io.Writer
+	// Progress receives per-skill status updates during installs so slow
+	// git operations are visible. nil disables progress output (the CLI
+	// wires a renderer only when stderr is an interactive terminal).
+	Progress Progress
+	Out      io.Writer
+	Err      io.Writer
+}
+
+// Progress receives per-skill status updates during installs.
+type Progress interface {
+	// Step reports a transient stage ("resolving", "fetching") for name.
+	Step(name, stage string)
+	// Done reports a finished install for name.
+	Done(name, result string)
+	// Clear removes any transient status line.
+	Clear()
+}
+
+func (e *Engine) progressStep(name, stage string) {
+	if e.Progress != nil {
+		e.Progress.Step(name, stage)
+	}
+}
+
+func (e *Engine) progressDone(name, result string) {
+	if e.Progress != nil {
+		e.Progress.Done(name, result)
+	}
+}
+
+// progressClear is deferred by every engine entry point so no transient
+// status line is left pending when control returns to the CLI.
+func (e *Engine) progressClear() {
+	if e.Progress != nil {
+		e.Progress.Clear()
+	}
 }
 
 // New returns a production engine for the scope: system git sources and
@@ -118,6 +152,7 @@ func (e *Engine) PlanSync(force bool) (Plan, error) {
 // skills (restoring them only with force). It returns a non-nil error if
 // any skill drifted or failed.
 func (e *Engine) Sync(force bool) error {
+	defer e.progressClear()
 	m, lf, err := e.load()
 	if err != nil {
 		return err
@@ -298,10 +333,12 @@ func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lock
 	if err != nil {
 		return err
 	}
+	e.progressStep(name, "resolving")
 	commit, err := src.Resolve(entry.Ref)
 	if err != nil {
 		return err
 	}
+	e.progressStep(name, "fetching")
 	preInstall := func(staged string) error {
 		return e.runPreInstall(hook, name, entry.Source, commit, event, staged)
 	}
@@ -322,6 +359,7 @@ func (e *Engine) applyFetch(name string, entry manifest.Entry, lf *lockfile.Lock
 		Name: name, Source: entry.Source, Path: entry.Path, Ref: entry.Ref,
 		Commit: commit, Hash: hash,
 	})
+	e.progressDone(name, "installed")
 	return nil
 }
 
@@ -331,6 +369,7 @@ func (e *Engine) applyMaterialize(name string, locked lockfile.Skill, force bool
 	if err != nil {
 		return err
 	}
+	e.progressStep(name, "fetching")
 	hash, _, err := e.install(name, src, locked.Commit, locked.Path, force, enabled, nil)
 	if err != nil {
 		return err
@@ -338,7 +377,11 @@ func (e *Engine) applyMaterialize(name string, locked lockfile.Skill, force bool
 	if hash != locked.Hash {
 		return fmt.Errorf("content at commit %s does not match the locked hash", locked.Commit)
 	}
-	return e.linkAll(name, force, enabled)
+	if err := e.linkAll(name, force, enabled); err != nil {
+		return err
+	}
+	e.progressDone(name, "installed")
+	return nil
 }
 
 // applyLink ensures the canonical location (editable) and harness links.

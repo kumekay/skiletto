@@ -19,6 +19,7 @@ import (
 // that cannot be mapped or resolved are reported and cause a non-zero exit,
 // but never abort the entries that do resolve.
 func (e *Engine) Import(lockPath string, force bool) error {
+	defer e.progressClear()
 	lk, err := vercelimport.Read(lockPath)
 	if err != nil {
 		return err
