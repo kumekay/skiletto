@@ -109,6 +109,56 @@ func (e *Engine) AddAll(spec manifest.SourceSpec, editable bool) error {
 	return e.addSubpaths(spec, subpaths, editable)
 }
 
+// AddSkills discovers the source's skills and installs the ones whose
+// names match, without prompting. It is the engine side of the --skill
+// flag; the spec's //path, when set, narrows the search root. A name that
+// matches nothing or matches several skills is an error.
+func (e *Engine) AddSkills(spec manifest.SourceSpec, names []string, editable bool) error {
+	defer e.progressClear()
+	if err := validateAdd(spec, editable); err != nil {
+		return err
+	}
+	e.warnPathSource(spec)
+	subpaths, err := e.discover(spec, editable)
+	if err != nil {
+		return err
+	}
+	byName := map[string][]string{}
+	available := make([]string, 0, len(subpaths))
+	for _, sub := range subpaths {
+		n := skill.DefaultName(spec.Source, sub)
+		byName[n] = append(byName[n], sub)
+		available = append(available, n)
+	}
+	seen := map[string]bool{}
+	var picked []string
+	for _, name := range names {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		subs := byName[name]
+		switch len(subs) {
+		case 0:
+			return fmt.Errorf("no skill named %q in %s; available: %s",
+				name, spec.Source, strings.Join(available, ", "))
+		case 1:
+			picked = append(picked, subs[0])
+		default:
+			var b strings.Builder
+			fmt.Fprintf(&b, "skill name %q matches %d skills in %s; pick one with //path:", name, len(subs), spec.Source)
+			for _, sub := range subs {
+				fmt.Fprintf(&b, "\n  skiletto add %s//%s", spec.Source, sub)
+				if spec.Ref != "" {
+					fmt.Fprintf(&b, "@%s", spec.Ref)
+				}
+			}
+			return errors.New(b.String())
+		}
+	}
+	return e.addSubpaths(spec, picked, editable)
+}
+
 // addSubpaths installs each subpath as its own skill, then writes the
 // manifest and lock once. Per-skill failures are reported as they happen
 // and summarized; skills that succeed are still saved.

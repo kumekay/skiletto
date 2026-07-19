@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kumekay/skiletto/internal/engine"
+	"github.com/kumekay/skiletto/internal/gitcli"
 	"github.com/kumekay/skiletto/internal/manifest"
 	"github.com/kumekay/skiletto/internal/ui"
 )
@@ -28,6 +29,7 @@ var promptSelector = func(noInput bool) ui.Prompter {
 
 func newAddCmd() *cobra.Command {
 	var editable, global, all bool
+	var skills []string
 	cmd := &cobra.Command{
 		Use:   "add <source>",
 		Short: "Add a skill: resolve, lock, install, and link it",
@@ -37,9 +39,9 @@ func newAddCmd() *cobra.Command {
 			"shorthand, or a local path (with --editable, the working tree is " +
 			"linked instead of copied).\n\n" +
 			"When the source holds several skills and no //path picks one, add shows " +
-			"a multi-select picker in a terminal; --all installs every skill, and " +
-			"without a TTY (or with --no-input) it prints the skills and the exact " +
-			"commands to script the choice.",
+			"a multi-select picker in a terminal; --skill <name> (repeatable) installs " +
+			"the named skills, --all installs every skill, and without a TTY (or with " +
+			"--no-input) it prints the skills and the exact commands to script the choice.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			spec, err := manifest.ParseSourceSpec(args[0])
@@ -57,13 +59,16 @@ func newAddCmd() *cobra.Command {
 				return err
 			}
 			if all {
-				return eng.AddAll(spec, editable)
+				return treeURLHint(spec, eng.AddAll(spec, editable))
+			}
+			if len(skills) > 0 {
+				return treeURLHint(spec, eng.AddSkills(spec, skills, editable))
 			}
 
 			err = eng.Add(spec, editable)
 			var multi *engine.MultipleSkillsError
 			if !errors.As(err, &multi) {
-				return err
+				return treeURLHint(spec, err)
 			}
 
 			noInput, _ := cmd.Flags().GetBool("no-input")
@@ -86,6 +91,9 @@ func newAddCmd() *cobra.Command {
 		"install for the whole machine (config dir manifest, skills under ~/.agents/skills) instead of the current project")
 	cmd.Flags().BoolVar(&all, "all", false,
 		"install every skill discovered in the source without prompting")
+	cmd.Flags().StringArrayVar(&skills, "skill", nil,
+		"install the named skill without prompting (repeatable); //path narrows where to look")
+	cmd.MarkFlagsMutuallyExclusive("all", "skill")
 	cmd.Flags().Bool("no-hooks", false,
 		"skip the pre-install hook configured under [hooks] in skiletto.toml")
 	return cmd
@@ -113,6 +121,17 @@ func absolutizePathSource(spec *manifest.SourceSpec) error {
 	}
 	spec.Source = abs
 	return nil
+}
+
+// treeURLHint augments a ref-not-found failure on a spec parsed from a
+// pasted /tree/ URL: the ref was taken to be the single segment after
+// /tree/, so a ref containing "/" cannot resolve and the explicit
+// repo//path@ref form is the way out.
+func treeURLHint(spec manifest.SourceSpec, err error) error {
+	if err == nil || !spec.TreeURL || !errors.Is(err, gitcli.ErrRefNotFound) {
+		return err
+	}
+	return fmt.Errorf("%w\na ref containing \"/\" cannot be told apart from the path in a /tree/ URL; spell it out as %s//<path>@<ref>", err, spec.Source)
 }
 
 // pickerOptions turns the discovered skills into picker options, each

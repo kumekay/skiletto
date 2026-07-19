@@ -201,6 +201,33 @@ func TestParseSourceSpec(t *testing.T) {
 			SourceSpec{Source: "git@github.com:anthropics/skills.git", Path: "skills/pdf"},
 		},
 		{
+			"https://github.com/anthropics/skills/tree/main/skills/pdf",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/pdf", Ref: "main", TreeURL: true},
+		},
+		{
+			"https://github.com/anthropics/skills/tree/main",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Ref: "main", TreeURL: true},
+		},
+		{
+			"https://github.com/anthropics/skills/tree/main/skills/pdf/",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/pdf", Ref: "main", TreeURL: true},
+		},
+		{
+			"github.com/anthropics/skills/tree/main/skills/pdf",
+			SourceSpec{Source: "https://github.com/anthropics/skills", Path: "skills/pdf", Ref: "main", TreeURL: true},
+		},
+		{
+			// Only github.com gets /tree/ normalization; other hosts keep
+			// their URL untouched.
+			"https://example.com/anthropics/skills/tree/main/skills/pdf",
+			SourceSpec{Source: "https://example.com/anthropics/skills/tree/main/skills/pdf"},
+		},
+		{
+			// A repo path that merely ends in /tree is not a browser URL.
+			"https://github.com/anthropics/tree",
+			SourceSpec{Source: "https://github.com/anthropics/tree"},
+		},
+		{
 			"./my-skills//my-skill",
 			SourceSpec{Source: "./my-skills", Path: "my-skill", IsPath: true},
 		},
@@ -240,6 +267,20 @@ func TestParseSourceSpec(t *testing.T) {
 func TestParseSourceSpecRejectsEmpty(t *testing.T) {
 	if _, err := ParseSourceSpec(""); err == nil {
 		t.Error("want error for empty spec")
+	}
+}
+
+// A /tree/ URL already carries a ref and a path; combining it with an
+// explicit @ref or //path is contradictory and must be rejected, not
+// guessed at.
+func TestParseSourceSpecTreeURLConflicts(t *testing.T) {
+	for _, spec := range []string{
+		"https://github.com/anthropics/skills/tree/main/skills/pdf@v2",
+		"https://github.com/anthropics/skills/tree/main//skills/pdf",
+	} {
+		if _, err := ParseSourceSpec(spec); err == nil {
+			t.Errorf("ParseSourceSpec(%q): want error for /tree/ URL combined with @ref or //path", spec)
+		}
 	}
 }
 

@@ -177,6 +177,110 @@ func TestAddAllRejectsExplicitPath(t *testing.T) {
 	}
 }
 
+func TestAddSkillFlagInstallsNamed(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf", "web", "img")
+	project := t.TempDir()
+	t.Chdir(project)
+
+	// --skill must never consult the prompter.
+	setPrompter(t, &recordingPrompter{err: os.ErrInvalid})
+
+	if _, stderr, err := run(t, "add", "--skill", "pdf", "--skill", "web", repo); err != nil {
+		t.Fatalf("add --skill: %v\n%s", err, stderr)
+	}
+	for _, name := range []string{"pdf", "web"} {
+		if !skillInstalled(project, name) {
+			t.Errorf("skill %q not installed by --skill", name)
+		}
+	}
+	if skillInstalled(project, "img") {
+		t.Error("unrequested skill img was installed")
+	}
+}
+
+func TestAddSkillFlagUnknownNameListsAvailable(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf", "web")
+	t.Chdir(t.TempDir())
+
+	_, _, err := run(t, "add", "--skill", "nope", repo)
+	if err == nil {
+		t.Fatal("want an error for an unknown skill name")
+	}
+	msg := err.Error()
+	for _, want := range []string{"nope", "pdf", "web"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error missing %q:\n%s", want, msg)
+		}
+	}
+}
+
+func TestAddSkillFlagConflictsWithAll(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf", "web")
+	t.Chdir(t.TempDir())
+
+	_, _, err := run(t, "add", "--all", "--skill", "pdf", repo)
+	if err == nil {
+		t.Fatal("want an error combining --all with --skill")
+	}
+	if !strings.Contains(err.Error(), "all") || !strings.Contains(err.Error(), "skill") {
+		t.Errorf("error = %q, want it to name both flags", err)
+	}
+}
+
+func TestAddSkillFlagComposesWithPath(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf", "web")
+	project := t.TempDir()
+	t.Chdir(project)
+
+	if _, stderr, err := run(t, "add", "--skill", "pdf", repo+"//skills"); err != nil {
+		t.Fatalf("add //skills --skill pdf: %v\n%s", err, stderr)
+	}
+	if !skillInstalled(project, "pdf") {
+		t.Error("pdf not installed")
+	}
+	if skillInstalled(project, "web") {
+		t.Error("web installed despite --skill pdf")
+	}
+}
+
+func TestAddSkillFlagAmbiguousNameSuggestsPath(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf")
+	dir := filepath.Join(repo, "extra", "pdf")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# other pdf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, repo, "add", ".")
+	gitT(t, repo, "commit", "-q", "-m", "duplicate name")
+	t.Chdir(t.TempDir())
+
+	_, _, err := run(t, "add", "--skill", "pdf", repo)
+	if err == nil {
+		t.Fatal("want an error for an ambiguous skill name")
+	}
+	msg := err.Error()
+	for _, want := range []string{"pdf", "//path", "skills/pdf", "extra/pdf"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error missing %q:\n%s", want, msg)
+		}
+	}
+}
+
+func TestAddNoInputMentionsSkillFlag(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf", "web")
+	t.Chdir(t.TempDir())
+
+	_, _, err := run(t, "add", "--no-input", repo)
+	if err == nil {
+		t.Fatal("want an actionable error under --no-input")
+	}
+	if !strings.Contains(err.Error(), "--skill") {
+		t.Errorf("no-input error should mention --skill:\n%s", err)
+	}
+}
+
 func TestAddNoInputListsChoices(t *testing.T) {
 	repo := makeSkillRepo(t, "pdf", "web")
 	t.Chdir(t.TempDir())

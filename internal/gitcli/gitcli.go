@@ -4,6 +4,7 @@
 package gitcli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -19,6 +20,10 @@ var (
 	versionRe = regexp.MustCompile(`git version (\d+)\.(\d+)`)
 	shaRe     = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
+
+// ErrRefNotFound marks a ref that ls-remote could not find, so callers can
+// distinguish a bad ref from transport failures.
+var ErrRefNotFound = errors.New("ref not found")
 
 // gitEnvBlocklist names GIT_* variables that pin git to a specific
 // repository, object store, or index. Git exports these into hook
@@ -151,7 +156,7 @@ func (g *Git) ResolveRemote(url, ref string) (string, error) {
 	if shaRe.MatchString(ref) {
 		return ref, nil
 	}
-	return "", fmt.Errorf("ref %q not found at %s", ref, url)
+	return "", fmt.Errorf("%w: %q at %s", ErrRefNotFound, ref, url)
 }
 
 // ResolveLocal resolves ref (default HEAD) to a full commit SHA against a
@@ -229,7 +234,9 @@ func firstSHA(out string) string {
 }
 
 // copyTree copies the directory tree at src to dest (which must not
-// exist), skipping any .git directory.
+// exist), skipping any .git directory. Symlinks are recreated as symlinks
+// (never followed): a link may point at a directory or even dangle, and
+// dereferencing would either fail or silently duplicate content.
 func copyTree(src, dest string) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -243,6 +250,13 @@ func copyTree(src, dest string) error {
 			return err
 		}
 		target := filepath.Join(dest, rel)
+		if d.Type()&fs.ModeSymlink != 0 {
+			linkTarget, err := os.Readlink(p)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(linkTarget, target)
+		}
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}

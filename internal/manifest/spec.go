@@ -15,6 +15,10 @@ type SourceSpec struct {
 	Path   string
 	Ref    string
 	IsPath bool
+	// TreeURL marks a spec parsed from a pasted github.com/.../tree/<ref>/...
+	// browser URL. It is parse-time metadata only (never persisted), used to
+	// improve the error when the single-segment ref guess does not resolve.
+	TreeURL bool
 }
 
 var shorthandRe = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
@@ -70,7 +74,37 @@ func ParseSourceSpec(spec string) (SourceSpec, error) {
 	default:
 		s.Source = source
 	}
+	if err := normalizeTreeURL(&s); err != nil {
+		return SourceSpec{}, err
+	}
 	return s, nil
+}
+
+// normalizeTreeURL rewrites a pasted github.com browser URL
+// (https://github.com/owner/repo/tree/<ref>[/<path>]) into the canonical
+// repo URL plus Ref and Path. The ref is assumed to be a single segment:
+// a ref containing "/" cannot be split from the path without asking the
+// remote, so it fails later at resolve time with a hint (see TreeURL).
+func normalizeTreeURL(s *SourceSpec) error {
+	const prefix = "https://github.com/"
+	if s.IsPath || !strings.HasPrefix(s.Source, prefix) {
+		return nil
+	}
+	seg := strings.Split(strings.Trim(strings.TrimPrefix(s.Source, prefix), "/"), "/")
+	if len(seg) < 4 || seg[2] != "tree" {
+		return nil
+	}
+	if s.Ref != "" {
+		return fmt.Errorf("%s already names ref %q in /tree/; an extra @%s is contradictory", s.Source, seg[3], s.Ref)
+	}
+	if s.Path != "" {
+		return fmt.Errorf("%s already contains the path after /tree/<ref>/; an extra //%s is contradictory", s.Source, s.Path)
+	}
+	s.Source = prefix + seg[0] + "/" + seg[1]
+	s.Ref = seg[3]
+	s.Path = strings.Join(seg[4:], "/")
+	s.TreeURL = true
+	return nil
 }
 
 // isPathSource reports whether source is a local filesystem path. Relative

@@ -43,8 +43,12 @@ skiletto add ssh://gitea@git.example.com:30009/me/skills.git//deploy
 skiletto add ~/p/my-skills//my-skill                  # local git repo, pinned
 skiletto add --editable ~/p/my-skills//my-skill       # link the working tree
 
+# a pasted GitHub browser URL works too
+skiletto add https://github.com/anthropics/skills/tree/main/skills/pdf
+
 # a source with several skills and no //path: pick interactively, or
 skiletto add --all anthropics/skills                  # install every skill in it
+skiletto add --skill pdf --skill web anthropics/skills # just the named ones
 
 # make installed skills match the lockfile exactly
 skiletto sync
@@ -82,10 +86,17 @@ skiletto sync -g
   `skiletto.lock`, installs it, and links it into every harness. If the
   source contains several skills and no `//path` picks one, `add` shows a
   multi-select picker in a terminal and installs everything you check.
-  `--all` installs every skill without prompting. With no TTY — or with
-  `--no-input`, or when the `CI` env var is set — it instead prints the
-  skills and the exact `//path` (or `--all`) commands to script the choice,
-  and exits non-zero, so scripts and CI never hang on a prompt.
+  `--all` installs every skill without prompting; `--skill <name>`
+  (repeatable) installs just the named ones, and combines with a `//path`
+  that narrows where to look. With no TTY — or with `--no-input`, or when
+  the `CI` env var is set — it instead prints the skills and the exact
+  `//path` (or `--skill`/`--all`) commands to script the choice, and exits
+  non-zero, so scripts and CI never hang on a prompt.
+- A pasted GitHub browser URL (`https://github.com/owner/repo/tree/<ref>/<path>`)
+  is normalized to the canonical `repo//path@ref` form at `add` time. The
+  ref is taken to be the single segment after `/tree/`; for a ref that
+  itself contains `/`, spell the source out as `repo//path@ref`. Symlinks
+  inside a fetched source are recreated as symlinks, never followed.
 - `sync` installs exactly what the lock pins and resolves+locks manifest
   entries that are not locked yet. It never re-resolves already-locked
   versions. Skills with local modifications (drift) are warned about and
