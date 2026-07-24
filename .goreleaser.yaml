@@ -20,12 +20,29 @@ builds:
       - arm64
     ldflags:
       - -s -w -X github.com/kumekay/skiletto/internal/cli.version={{ .Version }}
+  # Short alias binary: identical command, installed as `tto`. Built from
+  # cmd/tto so `go install .../cmd/tto@latest` also yields `tto`.
+  - id: tto
+    main: ./cmd/tto
+    binary: tto
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/kumekay/skiletto/internal/cli.version={{ .Version }}
 
 archives:
   # Human-facing archives carrying the binary plus LICENSE and README.
   - id: archive
     ids:
       - skiletto
+      - tto
     formats:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
