@@ -1,8 +1,11 @@
 """Tests for build_wheel.py. Run with: python -m unittest discover packaging/pypi"""
 
+import os
+import tempfile
 import unittest
+import zipfile
 
-from build_wheel import normalize_version
+from build_wheel import build, normalize_version
 
 
 class NormalizeVersionTest(unittest.TestCase):
@@ -33,6 +36,35 @@ class NormalizeVersionTest(unittest.TestCase):
             normalize_version("not-a-version")
         with self.assertRaises(ValueError):
             normalize_version("0.1.0-rc")  # prerelease without a number
+
+
+class ConsoleScriptsTest(unittest.TestCase):
+    """The wheel must expose both the full `skiletto` command and the short
+    `tto` alias, so `uvx skiletto` and a global `tto` both work."""
+
+    def _entry_points(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = os.path.join(tmp, "skiletto")
+            with open(binary, "wb") as fh:
+                fh.write(b"#!/bin/sh\necho fake\n")
+            outdir = os.path.join(tmp, "wheelhouse")
+            wheel = build("0.1.0", "linux", "amd64", binary, outdir)
+            with zipfile.ZipFile(wheel) as zf:
+                return zf.read("skiletto-0.1.0.dist-info/entry_points.txt").decode()
+
+    def _console_script_lines(self):
+        ep = self._entry_points()
+        return [
+            line.strip()
+            for line in ep.splitlines()
+            if line.strip() and not line.startswith("[")
+        ]
+
+    def test_exposes_skiletto_command(self):
+        self.assertIn("skiletto = skiletto._launcher:main", self._console_script_lines())
+
+    def test_exposes_tto_alias(self):
+        self.assertIn("tto = skiletto._launcher:main", self._console_script_lines())
 
 
 if __name__ == "__main__":

@@ -31,6 +31,11 @@ source with a Go toolchain:
 go install github.com/kumekay/skiletto@latest
 ```
 
+The npm and pip packages install the command under both its full name and a
+short alias, so `skiletto` and `tto` are interchangeable — the examples below
+write `skiletto`, but `tto add …`, `tto sync`, etc. work identically. (`go
+install` builds only the `skiletto` binary.)
+
 ## Usage
 
 Run in your project root:
