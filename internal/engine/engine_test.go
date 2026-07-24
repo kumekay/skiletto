@@ -207,6 +207,7 @@ func TestSyncInstallsLocksAndLinks(t *testing.T) {
 	s := lf.Find("pdf")
 	if s == nil {
 		t.Fatal("no lock entry")
+		return
 	}
 	if s.Commit != commitA {
 		t.Errorf("lock commit = %q", s.Commit)
