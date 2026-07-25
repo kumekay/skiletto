@@ -32,12 +32,15 @@ Or download a prebuilt binary for your platform from the
 ships both `tto` and `skiletto`), or build from source with a Go toolchain:
 
 ```sh
-go install github.com/kumekay/skiletto/cmd/tto@latest   # installs `tto`
-go install github.com/kumekay/skiletto@latest           # installs `skiletto`
+go install github.com/kumekay/skiletto/...@latest       # both `tto` and `skiletto`
+# or individually:
+go install github.com/kumekay/skiletto/cmd/tto@latest   # `tto`
+go install github.com/kumekay/skiletto@latest           # `skiletto`
 ```
 
-Go names the binary after the package path, so the short `tto` binary lives
-under `cmd/tto` while the root package builds the long `skiletto` name.
+Go names each binary after its package path, so the short `tto` binary lives
+under `cmd/tto` while the root package builds the long `skiletto` name; the
+`/...` wildcard installs every command in the module at once.
 
 ## Usage
 
