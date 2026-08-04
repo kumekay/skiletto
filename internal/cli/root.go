@@ -4,8 +4,8 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -20,6 +20,10 @@ import (
 // defaults to "dev" and is overridden at release time via -ldflags
 // "-X github.com/kumekay/skiletto/internal/cli.version=<tag>".
 var version = "dev"
+
+// userConfigDir is os.UserConfigDir behind a variable so tests can pin
+// the platform config dir (e.g. exercise macOS behavior on any OS).
+var userConfigDir = os.UserConfigDir
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -43,6 +47,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newListCmd())
 	cmd.AddCommand(newImportCmd())
 	cmd.AddCommand(newHarnessCmd())
+	cmd.AddCommand(newDoctorCmd())
 	return cmd
 }
 
@@ -52,10 +57,12 @@ func newRootCmd() *cobra.Command {
 // project scope rooted at the current directory is used. The machine scope
 // is resolved either way: its harnesses apply in every scope.
 func engineFor(cmd *cobra.Command, global bool) (*engine.Engine, error) {
-	machine, err := machineScope()
+	res, err := resolveMachine()
 	if err != nil {
 		return nil, err
 	}
+	warnShadowed(cmd.ErrOrStderr(), res)
+	machine := res.Scope
 	sc := machine
 	if !global {
 		root, err := os.Getwd()
@@ -114,36 +121,34 @@ func sameDir(a, b string) bool {
 	return os.SameFile(fa, fb)
 }
 
-// machineScope resolves the machine scope, reading the home and config
-// dirs from the environment (HOME / XDG_CONFIG_HOME) so it can be
-// redirected in tests and by end users. The env is honored on every
-// platform; where it is unset the OS defaults apply (%USERPROFILE% and
-// %AppData% on Windows, ~ and ~/.config on Linux). SKILETTO_CONFIG_DIR
-// takes precedence over both: it names the directory holding the
-// machine-scope manifest and lock directly, with no "skiletto"
-// subdirectory appended.
-func machineScope() (scope.Scope, error) {
+// resolveMachine resolves the machine scope, honoring on every platform:
+// SKILETTO_CONFIG_DIR, then XDG_CONFIG_HOME, then an existing
+// ~/.config/skiletto/skiletto.toml (a dotfiles-synced config), and
+// finally the platform default (%AppData% on Windows,
+// ~/Library/Application Support on macOS, ~/.config on Linux). The
+// fallback rescues setups where XDG_CONFIG_HOME is set in the shell but
+// not exported to child processes. Writes go to the resolved path, so a
+// fresh install lands in the platform default. See scope.ResolveMachine
+// for the full precedence rules.
+func resolveMachine() (scope.Resolution, error) {
 	home := os.Getenv("HOME")
 	if home == "" {
 		var err error
 		if home, err = os.UserHomeDir(); err != nil {
-			return scope.Scope{}, err
+			return scope.Resolution{}, err
 		}
 	}
-	if dir := os.Getenv("SKILETTO_CONFIG_DIR"); dir != "" {
-		s := scope.Machine(home, "")
-		s.ManifestPath = filepath.Join(dir, "skiletto.toml")
-		s.LockPath = filepath.Join(dir, "skiletto.lock")
-		return s, nil
+	return scope.ResolveMachine(home, os.Getenv, userConfigDir)
+}
+
+// warnShadowed reports machine manifests that exist below the winning
+// one: they are never read or written, which usually means a stray
+// config to merge or delete.
+func warnShadowed(w io.Writer, res scope.Resolution) {
+	for _, p := range res.Shadowed {
+		_, _ = fmt.Fprintf(w, "warning: %s is shadowed by %s and will not be read; merge it or delete it\n",
+			p, res.Scope.ManifestPath)
 	}
-	config := os.Getenv("XDG_CONFIG_HOME")
-	if config == "" {
-		var err error
-		if config, err = os.UserConfigDir(); err != nil {
-			return scope.Scope{}, err
-		}
-	}
-	return scope.Machine(home, config), nil
 }
 
 // Execute runs the root command.

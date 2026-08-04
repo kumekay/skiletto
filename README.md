@@ -87,6 +87,9 @@ skiletto harness enable claude            # this project
 skiletto harness enable claude --global   # machine-wide, applies in every project
 skiletto harness disable claude
 
+# show where config, skills, and harness links live (plus skill health)
+skiletto doctor
+
 # --global (-g) installs machine-wide instead of into the current project
 skiletto add --global --editable ~/p/my-skills//my-skill
 skiletto sync -g
@@ -166,17 +169,33 @@ skiletto sync -g
 - `--editable` (local paths only) symlinks the working tree instead of
   copying a pinned commit, so edits are live; such entries carry no
   commit/hash and are never drift-checked.
-- `--global` / `-g` (on any command) switches to the machine scope: the
-  manifest and lock live in the platform config dir (`~/.config/skiletto/`
-  on Linux; `XDG_CONFIG_HOME` is honored on every platform). Setting
-  `SKILETTO_CONFIG_DIR` overrides both: it names the directory holding the
-  machine-scope manifest and lock directly, no `skiletto/` subdirectory
-  appended. Skills materialize in `~/.agents/skills/`, and the Claude
-  adapter links into `~/.claude/skills/`. Local path and editable sources
-  are the normal case here, so `add` skips the portability warning. The
-  machine scope is always explicit: running in your home directory without
-  `--global` is an error, not a project rooted at `~` — a home-rooted
-  "project" would silently share `~/.agents/skills` with the machine scope.
+- `--global` / `-g` (on any command) switches to the machine scope. The
+  manifest and lock live in the machine config dir, resolved in this order
+  on every platform: `SKILETTO_CONFIG_DIR` (names the directory holding
+  the files directly, no `skiletto/` subdirectory appended) →
+  `XDG_CONFIG_HOME` → `~/.config/skiletto/` when its `skiletto.toml`
+  already exists (a dotfiles-synced config, e.g. chezmoi, works on macOS
+  and Windows too) → the platform config dir (`~/.config` on Linux,
+  `~/Library/Application Support` on macOS, `%AppData%` on Windows). A
+  fresh install creates the platform default; the `~/.config/skiletto`
+  fallback takes over only once a manifest is actually there. If a
+  manifest exists below the winning one, skiletto warns that it is
+  shadowed and will not be read. Skills materialize in
+  `~/.agents/skills/`, and the Claude adapter links into
+  `~/.claude/skills/`. Local path and editable sources are the normal
+  case here, so `add` skips the portability warning. The machine scope is
+  always explicit: running in your home directory without `--global` is an
+  error, not a project rooted at `~` — a home-rooted "project" would
+  silently share `~/.agents/skills` with the machine scope.
+- Every command that writes a manifest or lockfile prints a
+  `wrote <path>` line to stderr naming the file it modified, so it is
+  always visible which config was touched.
+- `doctor` reports the resolved machine config dir (and which rule won),
+  the manifest and lockfile paths with exists/missing state, shadowed
+  configs, the canonical skills dir with the installed skills and their
+  health (the same statuses as `list`), the registered harnesses with
+  their link dirs, and the project scope when run inside a project. It
+  observes; it never writes.
 - `--no-input` (on any command) forces the non-interactive path: instead of
   prompting, skiletto fails with an actionable error listing the flags that
   script the choice. A set `CI` env var implies it.
@@ -188,7 +207,8 @@ skiletto sync -g
 
 skiletto can run a security scanner — or any command — over a skill's
 content before it is installed. Configure it under `[hooks]` in the
-**machine-scope** manifest (`~/.config/skiletto/skiletto.toml` on Linux):
+**machine-scope** manifest (run `skiletto doctor` to see where yours
+lives — `~/.config/skiletto/skiletto.toml` on Linux):
 
 ```toml
 [hooks]

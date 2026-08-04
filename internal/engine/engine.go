@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/kumekay/skiletto/internal/adapter"
 	"github.com/kumekay/skiletto/internal/gitcli"
@@ -307,7 +308,7 @@ func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan, f
 		}
 	}
 	if lockChanged {
-		if err := lf.Save(e.Scope.LockPath); err != nil {
+		if err := e.saveLock(lf, e.Scope.LockPath); err != nil {
 			failures++
 			_, _ = fmt.Fprintf(e.Err, "error: %v\n", err)
 		}
@@ -316,6 +317,35 @@ func (e *Engine) apply(m *manifest.Manifest, lf *lockfile.Lockfile, plan Plan, f
 		return fmt.Errorf("%d skill(s) drifted or failed; see warnings above", failures)
 	}
 	return nil
+}
+
+// saveManifest writes the manifest to path and reports the write.
+func (e *Engine) saveManifest(m *manifest.Manifest, path string) error {
+	if err := m.Save(path); err != nil {
+		return err
+	}
+	e.reportWrite(path)
+	return nil
+}
+
+// saveLock writes the lockfile to path and reports the write.
+func (e *Engine) saveLock(lf *lockfile.Lockfile, path string) error {
+	if err := lf.Save(path); err != nil {
+		return err
+	}
+	e.reportWrite(path)
+	return nil
+}
+
+// reportWrite prints one "wrote <path>" line per config file written, so
+// it is always visible which manifest or lock a command modified. Paths
+// under the machine scope root are shown home-relative (~/.config/...),
+// the convention dotfile managers use.
+func (e *Engine) reportWrite(path string) {
+	if e.Machine != nil && strings.HasPrefix(path, e.Machine.Root+string(filepath.Separator)) {
+		path = filepath.Join("~", strings.TrimPrefix(path, e.Machine.Root))
+	}
+	_, _ = fmt.Fprintf(e.Err, "wrote %s\n", path)
 }
 
 // applyFetch resolves a manifest entry, installs it, and locks it.

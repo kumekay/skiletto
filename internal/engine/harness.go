@@ -48,7 +48,7 @@ func (e *Engine) resolveHarnesses(m *manifest.Manifest, allowPrompt bool) ([]ada
 				chosen = []string{}
 			}
 			m.Harnesses = chosen
-			if err := m.Save(e.Scope.ManifestPath); err != nil {
+			if err := e.saveManifest(m, e.Scope.ManifestPath); err != nil {
 				return nil, err
 			}
 			names = chosen
@@ -140,7 +140,7 @@ func (e *Engine) HarnessEnable(names []string, force bool) error {
 		return err
 	}
 	m.Harnesses = unionNames(m.Harnesses, names)
-	if err := m.Save(e.Scope.ManifestPath); err != nil {
+	if err := e.saveManifest(m, e.Scope.ManifestPath); err != nil {
 		return err
 	}
 	adapters := e.adaptersFor(names, false)
@@ -189,7 +189,7 @@ func (e *Engine) HarnessDisable(names []string, force bool) error {
 	}
 	sort.Strings(remaining)
 	m.Harnesses = remaining
-	if err := m.Save(e.Scope.ManifestPath); err != nil {
+	if err := e.saveManifest(m, e.Scope.ManifestPath); err != nil {
 		return err
 	}
 

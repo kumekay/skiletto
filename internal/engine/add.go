@@ -411,10 +411,10 @@ func (e *Engine) cleanupFailedAdd(name string, symlinkOnly bool) {
 }
 
 func (e *Engine) saveBoth(m *manifest.Manifest, lf *lockfile.Lockfile) error {
-	if err := m.Save(e.Scope.ManifestPath); err != nil {
+	if err := e.saveManifest(m, e.Scope.ManifestPath); err != nil {
 		return err
 	}
-	return lf.Save(e.Scope.LockPath)
+	return e.saveLock(lf, e.Scope.LockPath)
 }
 
 // singleSkill maps discovery results to the one skill the spec means, or
