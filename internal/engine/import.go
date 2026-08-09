@@ -73,10 +73,10 @@ func (e *Engine) Import(lockPath string, force bool) error {
 	}
 
 	if imported > 0 {
-		if err := m.Save(e.Scope.ManifestPath); err != nil {
+		if err := e.saveManifest(m, e.Scope.ManifestPath); err != nil {
 			return err
 		}
-		if err := lf.Save(e.Scope.LockPath); err != nil {
+		if err := e.saveLock(lf, e.Scope.LockPath); err != nil {
 			return err
 		}
 	}

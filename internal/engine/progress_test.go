@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/kumekay/skiletto/internal/manifest"
@@ -161,7 +162,11 @@ func TestNilProgressIsSilent(t *testing.T) {
 	if err := f.eng.Sync(false); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.errOut.String(); got != "" {
-		t.Errorf("stderr = %q, want empty without a progress renderer", got)
+	// Without a progress renderer stderr carries only the write reports:
+	// no transient status text may leak.
+	for _, line := range strings.Split(strings.TrimSpace(f.errOut.String()), "\n") {
+		if line != "" && !strings.HasPrefix(line, "wrote ") {
+			t.Errorf("unexpected stderr line %q; want only 'wrote ...' reports", line)
+		}
 	}
 }

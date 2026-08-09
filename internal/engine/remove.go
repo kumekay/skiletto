@@ -32,10 +32,10 @@ func (e *Engine) Remove(name string, force bool) error {
 	}
 	delete(m.Skills, name)
 	lf.Remove(name)
-	if err := m.Save(e.Scope.ManifestPath); err != nil {
+	if err := e.saveManifest(m, e.Scope.ManifestPath); err != nil {
 		return err
 	}
-	if err := lf.Save(e.Scope.LockPath); err != nil {
+	if err := e.saveLock(lf, e.Scope.LockPath); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintf(e.Out, "removed %s\n", name)
