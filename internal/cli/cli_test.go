@@ -23,6 +23,9 @@ func TestMain(m *testing.M) {
 	_ = os.Setenv("HOME", home)
 	_ = os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	_ = os.Unsetenv("SKILETTO_CONFIG_DIR")
+	_ = os.Unsetenv("SKILETTO_CACHE_DIR")
+	_ = os.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	_ = os.Setenv("LocalAppData", filepath.Join(home, "LocalAppData"))
 	code := m.Run()
 	_ = os.RemoveAll(home)
 	os.Exit(code)
@@ -97,6 +100,41 @@ func run(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	cmd.SetArgs(args)
 	err = cmd.Execute()
 	return out.String(), errBuf.String(), err
+}
+
+// An installed skill can be re-materialized from the user-wide repo cache
+// even after its source disappears: the cache is not tied to any one
+// project or install.
+func TestCacheSurvivesSourceDisappearance(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf")
+	project := t.TempDir()
+	t.Chdir(project)
+
+	if _, stderr, err := run(t, "harness", "enable", "claude"); err != nil {
+		t.Fatalf("harness enable: %v\n%s", err, stderr)
+	}
+	if _, stderr, err := run(t, "add", "file://"+repo+"//skills/pdf"); err != nil {
+		t.Fatalf("add: %v\n%s", err, stderr)
+	}
+
+	// The source disappears, and so does the installed skill.
+	if err := os.RemoveAll(repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(project, ".agents", "skills", "pdf")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, stderr, err := run(t, "sync"); err != nil {
+		t.Fatalf("sync from cache failed: %v\n%s", err, stderr)
+	}
+	data, err := os.ReadFile(filepath.Join(project, ".agents", "skills", "pdf", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("skill not re-materialized: %v", err)
+	}
+	if string(data) != "# pdf" {
+		t.Errorf("content = %q, want %q", data, "# pdf")
+	}
 }
 
 func TestAddAndSyncRoundTrip(t *testing.T) {

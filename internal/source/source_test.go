@@ -99,6 +99,50 @@ func TestGitSourceAgainstLocalRepo(t *testing.T) {
 	}
 }
 
+// Path sources never write to the repo cache: a fetch from a local path
+// is instant, so caching it would only duplicate objects.
+func TestPathSourceBypassesCache(t *testing.T) {
+	repo, tip := makeRepo(t)
+	cacheRoot := t.TempDir()
+	g, err := gitcli.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Cache = cacheRoot
+
+	src := New(g, repo)
+	dest := filepath.Join(t.TempDir(), "out")
+	if err := src.Fetch(tip, "pdf", dest); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(cacheRoot)
+	if len(entries) > 0 {
+		t.Errorf("path source wrote to the cache: %v", entries)
+	}
+}
+
+// URL sources populate the cache (file:// URL: a URL source against a
+// repo that happens to live on this machine).
+func TestGitSourceUsesCache(t *testing.T) {
+	repo, tip := makeRepo(t)
+	cacheRoot := t.TempDir()
+	g, err := gitcli.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Cache = cacheRoot
+
+	src := New(g, "file://"+repo)
+	dest := filepath.Join(t.TempDir(), "out")
+	if err := src.Fetch(tip, "pdf", dest); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(cacheRoot)
+	if err != nil || len(entries) == 0 {
+		t.Errorf("URL source did not populate the cache: %v", err)
+	}
+}
+
 func TestPathSourceNotAGitRepo(t *testing.T) {
 	dir := t.TempDir()
 	g, _ := gitcli.New()

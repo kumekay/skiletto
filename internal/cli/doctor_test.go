@@ -3,9 +3,11 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/kumekay/skiletto/internal/cache"
 	"github.com/kumekay/skiletto/internal/manifest"
 )
 
@@ -215,6 +217,31 @@ func TestDoctorProjectSectionAndSkillHealth(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("doctor output missing %q:\n%s", want, stdout)
 		}
+	}
+}
+
+// doctor reports the user-wide repo cache and how to clean it.
+func TestDoctorCacheDir(t *testing.T) {
+	freshHome(t)
+	t.Chdir(t.TempDir())
+
+	stdout, stderr, err := run(t, "doctor")
+	if err != nil {
+		t.Fatalf("doctor: %v\n%s", err, stderr)
+	}
+	dir, err := cache.Dir(os.Getenv, os.UserCacheDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, dir) {
+		t.Errorf("doctor output missing cache dir %q:\n%s", dir, stdout)
+	}
+	clean := "rm -rf " + dir
+	if runtime.GOOS == "windows" {
+		clean = "rmdir /s /q " + dir
+	}
+	if !strings.Contains(stdout, clean) {
+		t.Errorf("doctor output missing clean command %q:\n%s", clean, stdout)
 	}
 }
 

@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/kumekay/skiletto/internal/cache"
 )
 
 var (
@@ -71,6 +73,9 @@ type Git struct {
 	// shaFetch: attempt shallow fetches of exact SHAs before falling back
 	// to a full clone.
 	shaFetch bool
+	// Cache is the user-wide directory holding per-repo clones that are
+	// reused across extractions and projects; empty disables caching.
+	Cache string
 }
 
 // New locates system git and detects its version and capabilities.
@@ -172,11 +177,180 @@ func (g *Git) ResolveLocal(repo, ref string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// errCorruptCache marks failures inside a cache entry that rebuilding the
+// entry fixes, so Extract can discard it and retry instead of failing the
+// install.
+var errCorruptCache = errors.New("corrupt cache entry")
+
 // Extract materializes the content of subdir (repo root when empty) at
-// commit from the repository at url into dest. It tries a shallow fetch of
-// the exact SHA with a sparse checkout, and falls back to a full clone for
-// servers or gits that do not support that.
+// commit from the repository at url into dest, reusing and populating the
+// user-wide cache in g.Cache. A corrupted cache entry is rebuilt and the
+// extraction retried, so a bad cache can never block an install. Fetches
+// try a shallow fetch of the exact SHA first, falling back to a full
+// fetch for servers or gits that do not support that.
 func (g *Git) Extract(url, commit, subdir, dest string) error {
+	if g.Cache == "" {
+		return g.extract(url, commit, subdir, dest)
+	}
+	repoDir := cache.RepoDir(g.Cache, url)
+	err := g.extractCached(repoDir, url, commit, subdir, dest)
+	if err == nil || !errors.Is(err, errCorruptCache) {
+		return err
+	}
+	if err := os.RemoveAll(repoDir); err != nil {
+		return err
+	}
+	return g.extractCached(repoDir, url, commit, subdir, dest)
+}
+
+// ExtractLocal materializes from a repository already on the local
+// filesystem without touching the cache: a fetch from a path is instant,
+// so caching it would only duplicate objects.
+func (g *Git) ExtractLocal(root, commit, subdir, dest string) error {
+	return g.extract(root, commit, subdir, dest)
+}
+
+// extractCached serves an extraction from the cache repo at repoDir,
+// fetching commit into it first when missing. Failures of the cache entry
+// itself are wrapped in errCorruptCache so Extract can rebuild it; fetch
+// failures are returned as-is — they are network or auth problems, which
+// a rebuild cannot fix.
+func (g *Git) extractCached(repoDir, url, commit, subdir, dest string) error {
+	if err := g.ensureCacheRepo(repoDir, url); err != nil {
+		return err
+	}
+	have, err := g.cachedCommit(repoDir, commit)
+	if err != nil {
+		return err
+	}
+	if !have {
+		if err := g.fetchInto(repoDir, commit); err != nil {
+			return err
+		}
+	}
+	return g.materialize(repoDir, url, commit, subdir, dest)
+}
+
+// ensureCacheRepo creates repoDir as a repository whose origin is url, or
+// verifies an existing entry. Any failure marks the entry corrupt.
+func (g *Git) ensureCacheRepo(repoDir, url string) error {
+	corrupt := func(err error) error { return fmt.Errorf("%w: %v", errCorruptCache, err) }
+	if _, err := os.Stat(repoDir); err != nil {
+		if err := os.MkdirAll(repoDir, 0o755); err != nil {
+			return err
+		}
+		if _, err := g.run(repoDir, "init", "-q"); err != nil {
+			return corrupt(err)
+		}
+		if _, err := g.run(repoDir, "remote", "add", "origin", url); err != nil {
+			return corrupt(err)
+		}
+		return nil
+	}
+	if _, err := g.run(repoDir, "rev-parse", "-q", "--git-dir"); err != nil {
+		return corrupt(err)
+	}
+	remote, err := g.run(repoDir, "remote", "get-url", "origin")
+	if err != nil {
+		return corrupt(err)
+	}
+	if strings.TrimSpace(remote) != url {
+		// Same repository reached through another URL spelling (https vs
+		// ssh): keep the objects, fetch from the spelling we were given.
+		if _, err := g.run(repoDir, "remote", "set-url", "origin", url); err != nil {
+			return corrupt(err)
+		}
+	}
+	return nil
+}
+
+// cachedCommit reports whether commit is already present in the cache
+// repo. cat-file exits 1 for a missing object; any other failure means the
+// object store itself is unreadable.
+func (g *Git) cachedCommit(repoDir, commit string) (bool, error) {
+	cmd := exec.Command("git", "cat-file", "-e", commit)
+	cmd.Dir = repoDir
+	cmd.Env = Environ()
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, fmt.Errorf("%w: git cat-file -e %s: %v", errCorruptCache, commit, err)
+}
+
+// fetchInto fetches commit into the cache repo: a shallow fetch of the
+// exact SHA first, then a full fetch (unshallowing when the cache repo is
+// shallow) for servers or gits that refuse it.
+func (g *Git) fetchInto(repoDir, commit string) error {
+	if g.shaFetch {
+		// Needs uploadpack.allowAnySHA1InWant server-side; -c propagates
+		// it to local upload-packs so path remotes work too.
+		if _, err := g.run(repoDir, "-c", "uploadpack.allowAnySHA1InWant=true",
+			"fetch", "-q", "--depth", "1", "origin", commit); err == nil {
+			return nil
+		}
+	}
+	args := []string{"fetch", "-q", "--tags"}
+	if _, err := os.Stat(filepath.Join(repoDir, ".git", "shallow")); err == nil {
+		args = append(args, "--unshallow")
+	}
+	args = append(args, "origin")
+	_, err := g.run(repoDir, args...)
+	return err
+}
+
+// materialize checks commit out of the cache repo into a throwaway shared
+// clone and copies the result into dest. The cache entry itself is never
+// checked out, so interleaved extractions of different commits cannot
+// disturb each other.
+func (g *Git) materialize(repoDir, url, commit, subdir, dest string) error {
+	corrupt := func(err error) error { return fmt.Errorf("%w: %v", errCorruptCache, err) }
+	tmp, err := os.MkdirTemp("", "skiletto-git-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+
+	// A clone needs at least one reachable ref: pin HEAD at the commit we
+	// want so the entry stays clonable even when the commit arrived
+	// ref-less (shallow SHA fetches do not create refs).
+	if _, err := g.run(repoDir, "update-ref", "HEAD", commit); err != nil {
+		return corrupt(err)
+	}
+	if _, err := g.run("", "clone", "-q", "--shared", "--no-checkout", repoDir, tmp); err != nil {
+		return corrupt(err)
+	}
+	if g.sparse && subdir != "" {
+		if _, err := g.run(tmp, "sparse-checkout", "set", subdir); err != nil {
+			return corrupt(err)
+		}
+	}
+	if _, err := g.run(tmp, "checkout", "-q", commit); err != nil {
+		return corrupt(err)
+	}
+
+	src := tmp
+	if subdir != "" {
+		sub, err := g.resolveSubdirLinks(tmp, subdir)
+		if err != nil {
+			return err
+		}
+		src = filepath.Join(tmp, filepath.FromSlash(sub))
+		if _, err := os.Stat(src); err != nil {
+			return fmt.Errorf("path %q not found in %s at %s", subdir, url, commit)
+		}
+	}
+	return copyTree(src, dest)
+}
+
+// extract is the cache-less fetch-and-checkout flow: it tries a shallow
+// fetch of the exact SHA with a sparse checkout, and falls back to a full
+// clone for servers or gits that do not support that.
+func (g *Git) extract(url, commit, subdir, dest string) error {
 	tmp, err := os.MkdirTemp("", "skiletto-git-*")
 	if err != nil {
 		return err
