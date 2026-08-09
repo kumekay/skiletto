@@ -66,8 +66,9 @@ func (s *Path) Resolve(ref string) (string, error) {
 }
 
 // Fetch extracts subpath at commit from the local clone into dest.
+// Path sources never use the repo cache: the source is already local.
 func (s *Path) Fetch(commit, subpath, dest string) error {
-	return s.git.Extract(s.root, commit, subpath, dest)
+	return s.git.ExtractLocal(s.root, commit, subpath, dest)
 }
 
 var scpLikeRe = regexp.MustCompile(`^[^/@]+@[^/:]+:`)

@@ -187,13 +187,25 @@ skiletto sync -g
   always explicit: running in your home directory without `--global` is an
   error, not a project rooted at `~` — a home-rooted "project" would
   silently share `~/.agents/skills` with the machine scope.
+- Git repositories are cached user-wide: when fetching a remote source,
+  skiletto keeps a clone in a shared cache and reuses it across installs
+  and projects. The cache lives at `SKILETTO_CACHE_DIR` when set, else the
+  platform cache dir (`~/.cache/skiletto` on Linux,
+  `~/Library/Caches/skiletto` on macOS, `%LocalAppData%\skiletto` on
+  Windows), with one subdirectory per repository. A locked commit already
+  in the cache is materialized without any network access; missing commits
+  are fetched into the cache. Local path sources bypass the cache — a
+  fetch from a path is already instant. A corrupted cache entry is
+  dropped and rebuilt transparently, so the cache can never block an
+  install; the whole directory is safe to delete.
 - Every command that writes a manifest or lockfile prints a
   `wrote <path>` line to stderr naming the file it modified, so it is
   always visible which config was touched.
 - `doctor` reports the resolved machine config dir (and which rule won),
   the manifest and lockfile paths with exists/missing state, shadowed
   configs, the canonical skills dir with the installed skills and their
-  health (the same statuses as `list`), the registered harnesses with
+  health (the same statuses as `list`), the user-wide repo cache path and
+  the command to clean it, the registered harnesses with
   their link dirs, and the project scope when run inside a project. It
   observes; it never writes.
 - `--no-input` (on any command) forces the non-interactive path: instead of

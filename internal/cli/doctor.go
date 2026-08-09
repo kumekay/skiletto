@@ -5,15 +5,20 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
+	"github.com/kumekay/skiletto/internal/cache"
 	"github.com/kumekay/skiletto/internal/engine"
 	"github.com/kumekay/skiletto/internal/manifest"
 	"github.com/kumekay/skiletto/internal/scope"
 )
+
+// userCacheDir is os.UserCacheDir behind a variable so tests can pin it.
+var userCacheDir = os.UserCacheDir
 
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
@@ -23,7 +28,8 @@ func newDoctorCmd() *cobra.Command {
 			"SKILETTO_CONFIG_DIR, XDG_CONFIG_HOME, an existing ~/.config/skiletto, or " +
 			"the platform default), the manifest and lockfile paths with their " +
 			"exists/missing state, warnings about shadowed configs, the canonical " +
-			"skills dir with the installed skills and their health, the registered " +
+			"skills dir with the installed skills and their health, the user-wide " +
+			"git repository cache (and how to clean it), the registered " +
 			"harnesses with their link dirs, and — when run inside a project — the " +
 			"project scope. It observes; it never writes.",
 		Args: cobra.NoArgs,
@@ -71,6 +77,14 @@ func printMachineSection(out io.Writer, res scope.Resolution, project scope.Scop
 	_, _ = fmt.Fprintf(out, "  manifest:        %s (%s)\n", machine.ManifestPath, fileState(machine.ManifestPath))
 	_, _ = fmt.Fprintf(out, "  lockfile:        %s (%s)\n", machine.LockPath, fileState(machine.LockPath))
 	_, _ = fmt.Fprintf(out, "  skills dir:      %s\n", machine.SkillsDir)
+	if dir, err := cache.Dir(os.Getenv, userCacheDir); err == nil {
+		clean := "rm -rf"
+		if runtime.GOOS == "windows" {
+			clean = "rmdir /s /q"
+		}
+		_, _ = fmt.Fprintf(out, "  cache dir:       %s\n", dir)
+		_, _ = fmt.Fprintf(out, "                   clean: %s %s\n", clean, dir)
+	}
 
 	eng, err := engine.New(machine, machine)
 	if err != nil {

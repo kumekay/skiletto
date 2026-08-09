@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/kumekay/skiletto/internal/adapter"
+	"github.com/kumekay/skiletto/internal/cache"
 	"github.com/kumekay/skiletto/internal/gitcli"
 	"github.com/kumekay/skiletto/internal/lockfile"
 	"github.com/kumekay/skiletto/internal/manifest"
@@ -87,6 +88,10 @@ func New(sc scope.Scope, machine scope.Scope) (*Engine, error) {
 	g, err := gitcli.New()
 	if err != nil {
 		return nil, err
+	}
+	// A missing cache root (no home directory) only disables caching.
+	if dir, err := cache.Dir(os.Getenv, os.UserCacheDir); err == nil {
+		g.Cache = dir
 	}
 	return &Engine{
 		Scope:    sc,
