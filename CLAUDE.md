@@ -34,6 +34,8 @@ substantial.
 
 ## Easy to miss
 
+- **Never merge PRs unless the user explicitly says so.** Open the PR, wait
+  for review; merging is the user's call.
 - **Keep the wiki in sync.** Any change to file formats, CLI behavior, the
   install model, or architecture must be reflected in the wiki design doc as
   part of the same piece of work
