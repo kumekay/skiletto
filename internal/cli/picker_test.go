@@ -106,6 +106,7 @@ func TestAddMultiSelectRootSkillOptionUsesDot(t *testing.T) {
 	}
 	if root == nil {
 		t.Fatalf("no picker option for the root skill (Value \".\"): %+v", fake.options)
+		return
 	}
 	if !strings.HasSuffix(root.Hint, "//.") {
 		t.Errorf("root option hint = %q, want it to end in //.", root.Hint)

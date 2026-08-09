@@ -1,4 +1,4 @@
-# skiletto
+# (skile)tto
 
 Package manager for agent skills: manifest for intent, lockfile pinned to
 commit SHAs, reproducible installs on any machine.
@@ -23,13 +23,24 @@ npm install -g skiletto
 pip install skiletto
 ```
 
+Both install the command under its short name `tto` and the long alias
+`skiletto` — they are interchangeable. The examples below write `skiletto`,
+but `tto add …`, `tto sync`, etc. work identically.
+
 Or download a prebuilt binary for your platform from the
-[releases page](https://github.com/kumekay/skiletto/releases), or build from
-source with a Go toolchain:
+[releases page](https://github.com/kumekay/skiletto/releases) (each archive
+ships both `tto` and `skiletto`), or build from source with a Go toolchain:
 
 ```sh
-go install github.com/kumekay/skiletto@latest
+go install github.com/kumekay/skiletto/...@latest       # both `tto` and `skiletto`
+# or individually:
+go install github.com/kumekay/skiletto/cmd/tto@latest   # `tto`
+go install github.com/kumekay/skiletto@latest           # `skiletto`
 ```
+
+Go names each binary after its package path, so the short `tto` binary lives
+under `cmd/tto` while the root package builds the long `skiletto` name; the
+`/...` wildcard installs every command in the module at once.
 
 ## Usage
 

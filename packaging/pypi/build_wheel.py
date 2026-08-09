@@ -103,7 +103,11 @@ def build(version: str, goos: str, goarch: str, binary: str, outdir: str) -> str
         "Tag: %s\n"
     ) % full_tag
 
-    entry_points = "[console_scripts]\nskiletto = skiletto._launcher:main\n"
+    entry_points = (
+        "[console_scripts]\n"
+        "skiletto = skiletto._launcher:main\n"
+        "tto = skiletto._launcher:main\n"
+    )
 
     # (arcname, bytes, unix_mode)
     members = []

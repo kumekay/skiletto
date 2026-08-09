@@ -18,7 +18,8 @@
   },
   "license": "MIT",
   "bin": {
-    "skiletto": "bin/skiletto.js"
+    "skiletto": "bin/skiletto.js",
+    "tto": "bin/skiletto.js"
   },
   "scripts": {
     "postinstall": "node install.js",
