@@ -338,11 +338,13 @@ func (e *Engine) saveLock(lf *lockfile.Lockfile, path string) error {
 }
 
 // reportWrite prints one "wrote <path>" line per config file written, so
-// it is always visible which manifest or lock a command modified. Paths
-// under the machine scope root are shown home-relative (~/.config/...),
-// the convention dotfile managers use.
+// it is always visible which manifest or lock a command modified.
+// Machine-scope paths under the home dir are shown home-relative
+// (~/.config/...), the convention dotfile managers use; project paths
+// stay absolute, so scripts see exactly the files they expect.
 func (e *Engine) reportWrite(path string) {
-	if e.Machine != nil && strings.HasPrefix(path, e.Machine.Root+string(filepath.Separator)) {
+	if e.Scope.Kind == scope.KindMachine && e.Machine != nil &&
+		strings.HasPrefix(path, e.Machine.Root+string(filepath.Separator)) {
 		path = filepath.Join("~", strings.TrimPrefix(path, e.Machine.Root))
 	}
 	_, _ = fmt.Fprintf(e.Err, "wrote %s\n", path)

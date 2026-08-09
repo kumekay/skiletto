@@ -78,6 +78,25 @@ func TestHarnessEnableReportsWrittenManifest(t *testing.T) {
 	}
 }
 
+// Project-scope writes stay absolute even when the project lives under
+// the home dir: the ~/... shorthand is reserved for the machine scope, so
+// scripts can rely on the project paths they passed in.
+func TestWriteReportKeepsProjectPathsAbsolute(t *testing.T) {
+	f := newFixture(t, pdfSource())
+	home := f.eng.Machine.Root
+	f.eng.Scope = scope.Project(filepath.Join(home, "proj"))
+	if err := f.eng.Add(pdfSpec(), false); err != nil {
+		t.Fatal(err)
+	}
+	want := "wrote " + filepath.Join(home, "proj", "skiletto.toml")
+	if !strings.Contains(f.errOut.String(), want) {
+		t.Errorf("stderr missing %q:\n%s", want, f.errOut.String())
+	}
+	if strings.Contains(f.errOut.String(), "wrote ~") {
+		t.Errorf("project write report was shortened to ~:\n%s", f.errOut.String())
+	}
+}
+
 // Machine-scope writes show a home-relative path, matching the ~/.config
 // convention users sync with dotfile managers.
 func TestWriteReportShortensHomeToTilde(t *testing.T) {

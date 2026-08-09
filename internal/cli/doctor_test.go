@@ -132,6 +132,7 @@ func TestDoctorMachineSection(t *testing.T) {
 		"XDG_CONFIG_HOME",
 		filepath.Join(home, ".agents", "skills"),
 		"claude",
+		"enabled (machine)",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("doctor output missing %q:\n%s", want, stdout)
@@ -152,12 +153,37 @@ func TestDoctorShadowWarning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("doctor: %v\n%s", err, stderr)
 	}
-	out := stdout + stderr
-	if !strings.Contains(out, filepath.Join(platform, "skiletto", "skiletto.toml")) {
-		t.Errorf("doctor does not name the shadowed manifest:\n%s", out)
+	// Same channel as every other command: warnings go to stderr.
+	if !strings.Contains(stderr, filepath.Join(platform, "skiletto", "skiletto.toml")) {
+		t.Errorf("doctor stderr does not name the shadowed manifest:\n%s", stderr)
 	}
-	if !strings.Contains(out, "shadowed") {
-		t.Errorf("doctor does not say 'shadowed':\n%s", out)
+	if !strings.Contains(stderr, "shadowed") {
+		t.Errorf("doctor stderr does not say 'shadowed':\n%s", stderr)
+	}
+	if strings.Contains(stdout, "shadowed") {
+		t.Errorf("shadow warning leaked into the report on stdout:\n%s", stdout)
+	}
+}
+
+// A harness enabled only in the project scope must not show up as
+// "disabled": doctor reports which scope each enablement comes from.
+func TestDoctorHarnessProjectEnablement(t *testing.T) {
+	freshHome(t)
+	project := t.TempDir()
+	t.Chdir(project)
+	if _, stderr, err := run(t, "harness", "enable", "claude"); err != nil {
+		t.Fatalf("harness enable: %v\n%s", err, stderr)
+	}
+
+	stdout, stderr, err := run(t, "doctor")
+	if err != nil {
+		t.Fatalf("doctor: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "enabled (project)") {
+		t.Errorf("doctor does not report the project enablement:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "enabled (machine)") {
+		t.Errorf("doctor claims a machine enablement that does not exist:\n%s", stdout)
 	}
 }
 

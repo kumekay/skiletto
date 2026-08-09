@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -31,20 +32,39 @@ func newDoctorCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			out := cmd.OutOrStdout()
-			_, _ = fmt.Fprintf(out, "skiletto version %s\n\n", version)
-			if err := printMachineSection(out, res); err != nil {
+			project, hasProject, err := projectScope()
+			if err != nil {
 				return err
 			}
-			printShadowed(out, res)
-			return printProjectSection(out, res)
+			out := cmd.OutOrStdout()
+			_, _ = fmt.Fprintf(out, "skiletto version %s\n\n", version)
+			if err := printMachineSection(out, res, project, hasProject); err != nil {
+				return err
+			}
+			warnShadowed(cmd.ErrOrStderr(), res)
+			return printProjectSection(out, res, project, hasProject)
 		},
 	}
 }
 
+// projectScope returns the project scope of the current directory and
+// whether it holds a skiletto.toml.
+func projectScope() (scope.Scope, bool, error) {
+	root, err := os.Getwd()
+	if err != nil {
+		return scope.Scope{}, false, err
+	}
+	project := scope.Project(root)
+	if _, err := os.Stat(project.ManifestPath); err != nil {
+		return project, false, nil
+	}
+	return project, true, nil
+}
+
 // printMachineSection reports the resolved machine config, its files, the
-// installed skills with their health, and every registered harness.
-func printMachineSection(out io.Writer, res scope.Resolution) error {
+// installed skills with their health, and every registered harness with
+// the scopes it is enabled in.
+func printMachineSection(out io.Writer, res scope.Resolution, project scope.Scope, hasProject bool) error {
 	machine := res.Scope
 	_, _ = fmt.Fprintf(out, "Machine config\n")
 	_, _ = fmt.Fprintf(out, "  config dir:      %s (%s)\n", filepath.Dir(machine.ManifestPath), res.Source)
@@ -71,46 +91,56 @@ func printMachineSection(out io.Writer, res scope.Resolution) error {
 	_, _ = fmt.Fprintf(out, "  installed:       %d skill(s)\n", managed)
 	printSkillHealth(out, statuses)
 
-	enabled := map[string]bool{}
-	if m, err := manifest.Load(machine.ManifestPath); err == nil {
-		for _, n := range m.Harnesses {
-			enabled[n] = true
-		}
+	machineEnabled := harnessNames(machine.ManifestPath)
+	projectEnabled := map[string]bool{}
+	if hasProject {
+		projectEnabled = harnessNames(project.ManifestPath)
 	}
 	_, _ = fmt.Fprintf(out, "\nHarnesses\n")
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, a := range eng.Adapters {
-		state := "disabled"
-		if enabled[a.Name()] {
-			state = "enabled"
-		}
-		_, _ = fmt.Fprintf(out, "  %-13s %-8s %s\n", a.Name(), state, a.SkillsDir(machine))
+		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\n", a.Name(),
+			harnessState(a.Name(), machineEnabled, projectEnabled), a.SkillsDir(machine))
 	}
+	_ = tw.Flush()
 	_, _ = fmt.Fprintln(out)
 	return nil
 }
 
-// printShadowed lists machine manifests that exist but lose to the
-// resolved one, so stale copies cannot silently diverge.
-func printShadowed(out io.Writer, res scope.Resolution) {
-	for _, p := range res.Shadowed {
-		_, _ = fmt.Fprintf(out, "warning: %s is shadowed by %s and will not be read; merge it or delete it\n",
-			p, res.Scope.ManifestPath)
+// harnessState reports where a harness is enabled: the machine scope, the
+// project doctor runs in, or both — so a project enablement can never hide
+// behind a plain "disabled".
+func harnessState(name string, machine, project map[string]bool) string {
+	var where []string
+	if machine[name] {
+		where = append(where, "machine")
 	}
-	if len(res.Shadowed) > 0 {
-		_, _ = fmt.Fprintln(out)
+	if project[name] {
+		where = append(where, "project")
 	}
+	if len(where) == 0 {
+		return "disabled"
+	}
+	return "enabled (" + strings.Join(where, ", ") + ")"
+}
+
+// harnessNames returns the harnesses key of the manifest at path; a
+// missing or unreadable manifest counts as none.
+func harnessNames(path string) map[string]bool {
+	names := map[string]bool{}
+	if m, err := manifest.Load(path); err == nil {
+		for _, n := range m.Harnesses {
+			names[n] = true
+		}
+	}
+	return names
 }
 
 // printProjectSection reports the project scope of the current directory
 // when it holds a skiletto.toml; otherwise it says so.
-func printProjectSection(out io.Writer, res scope.Resolution) error {
-	root, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	_, _ = fmt.Fprintf(out, "Project (%s)\n", root)
-	project := scope.Project(root)
-	if _, err := os.Stat(project.ManifestPath); err != nil {
+func printProjectSection(out io.Writer, res scope.Resolution, project scope.Scope, hasProject bool) error {
+	_, _ = fmt.Fprintf(out, "Project (%s)\n", project.Root)
+	if !hasProject {
 		_, _ = fmt.Fprintf(out, "  no skiletto.toml in the current directory\n")
 		return nil
 	}
