@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -56,8 +57,9 @@ func newRootCmd() *cobra.Command {
 // engineFor builds an engine for the selected scope, writing through the
 // command's streams. The root --global flag selects the machine scope
 // (manifest and lock in the platform config dir, skills under the home dir);
-// otherwise the project scope rooted at the current directory is used. The
-// machine scope is resolved either way: its harnesses apply in every scope.
+// otherwise the project scope is the nearest ancestor with a manifest. Add
+// and import may bootstrap a project in the current directory. The machine
+// scope is resolved either way: its harnesses apply in every scope.
 func engineFor(cmd *cobra.Command) (*engine.Engine, error) {
 	global, err := cmd.Flags().GetBool("global")
 	if err != nil {
@@ -71,12 +73,19 @@ func engineFor(cmd *cobra.Command) (*engine.Engine, error) {
 	machine := res.Scope
 	sc := machine
 	if !global {
-		root, err := os.Getwd()
+		start, err := os.Getwd()
 		if err != nil {
 			return nil, err
 		}
-		if sameDir(root, machine.Root) {
+		if sameDir(start, machine.Root) {
 			return nil, fmt.Errorf("the current directory is your home directory, the machine scope root; pass --global (-g) to manage machine-wide skills")
+		}
+		root, found, err := findProjectRoot(start, machine.Root)
+		if err != nil {
+			return nil, err
+		}
+		if !found && cmd.Name() != "add" && cmd.Name() != "import" {
+			return nil, fmt.Errorf("no skiletto.toml found searching from %s; run this command inside a project, create one here with skiletto add or skiletto import, or pass --global (-g) to use the machine scope", start)
 		}
 		sc = scope.Project(root)
 	}
@@ -103,6 +112,30 @@ func engineFor(cmd *cobra.Command) (*engine.Engine, error) {
 		eng.Err = p.Writer(eng.Err)
 	}
 	return eng, nil
+}
+
+// findProjectRoot walks from start toward the filesystem root and returns the
+// nearest directory containing skiletto.toml. stop is excluded from the search
+// so a manifest in the home directory can never become a project manifest.
+func findProjectRoot(start, stop string) (string, bool, error) {
+	root := filepath.Clean(start)
+	for {
+		if sameDir(root, stop) {
+			return start, false, nil
+		}
+		_, err := os.Stat(filepath.Join(root, "skiletto.toml"))
+		if err == nil {
+			return root, true, nil
+		}
+		if !os.IsNotExist(err) {
+			return start, false, err
+		}
+		parent := filepath.Dir(root)
+		if parent == root {
+			return start, false, nil
+		}
+		root = parent
+	}
 }
 
 // progressEnabled reports whether per-skill progress may render: stderr

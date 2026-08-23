@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -59,6 +61,79 @@ func TestGlobalFlagIsPersistentAndInterspersed(t *testing.T) {
 				t.Errorf("global = false for %v", args)
 			}
 		})
+	}
+}
+
+func TestFindProjectRootWalksUpToNearestManifest(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(home, "src", "project")
+	nested := filepath.Join(project, "one", "two")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeToml(t, project, "[skills]\n")
+
+	root, found, err := findProjectRoot(nested, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || root != project {
+		t.Errorf("findProjectRoot() = %q, %v; want %q, true", root, found, project)
+	}
+}
+
+func TestFindProjectRootStopsBeforeHome(t *testing.T) {
+	home := t.TempDir()
+	nested := filepath.Join(home, "work", "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeToml(t, home, "[skills]\n")
+
+	root, found, err := findProjectRoot(nested, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found || root != nested {
+		t.Errorf("findProjectRoot() = %q, %v; want %q, false", root, found, nested)
+	}
+}
+
+func TestProjectCommandUsesAncestorManifest(t *testing.T) {
+	home := freshHome(t)
+	project := filepath.Join(home, "src", "project")
+	nested := filepath.Join(project, "one", "two")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeToml(t, project, "harnesses = []\n\n[skills]\n")
+	t.Chdir(nested)
+
+	stdout, stderr, err := run(t, "harness", "list")
+	if err != nil {
+		t.Fatalf("harness list: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stdout, filepath.Join(project, ".claude", "skills")) {
+		t.Errorf("harness list does not use ancestor project root:\n%s", stdout)
+	}
+	if strings.Contains(stdout, filepath.Join(nested, ".claude", "skills")) {
+		t.Errorf("harness list invented a nested project root:\n%s", stdout)
+	}
+}
+
+func TestProjectCommandOutsideProjectFailsWithGuidance(t *testing.T) {
+	freshHome(t)
+	start := t.TempDir()
+	t.Chdir(start)
+
+	_, _, err := run(t, "list")
+	if err == nil {
+		t.Fatal("list outside a project succeeded")
+	}
+	for _, want := range []string{start, "skiletto.toml", "skiletto add", "skiletto import", "--global"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q: %v", want, err)
+		}
 	}
 }
 

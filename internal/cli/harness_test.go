@@ -94,11 +94,9 @@ func TestHarnessDisableEndToEnd(t *testing.T) {
 	repo := makeSkillRepo(t, "pdf")
 	project := t.TempDir()
 	setMachineHome(t)
+	writeToml(t, project, "harnesses = [\"claude\"]\n\n[skills]\n")
 	t.Chdir(project)
 
-	if _, stderr, err := run(t, "harness", "enable", "claude"); err != nil {
-		t.Fatalf("harness enable: %v\n%s", err, stderr)
-	}
 	if _, stderr, err := run(t, "add", repo+"//skills/pdf"); err != nil {
 		t.Fatalf("add: %v\n%s", err, stderr)
 	}

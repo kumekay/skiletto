@@ -31,11 +31,9 @@ func TestImportEndToEnd(t *testing.T) {
 	repo := makeSkillRepo(t, "pdf")
 	wantHead := gitT(t, repo, "rev-parse", "HEAD")
 	project := t.TempDir()
+	writeToml(t, project, "harnesses = [\"claude\"]\n\n[skills]\n")
 	t.Chdir(project)
 
-	if _, stderr, err := run(t, "harness", "enable", "claude"); err != nil {
-		t.Fatalf("harness enable: %v\n%s", err, stderr)
-	}
 	writeLockJSON(t, project, map[string]map[string]string{
 		"pdf": {
 			"source":     repo,
@@ -96,6 +94,24 @@ func TestImportEndToEnd(t *testing.T) {
 	}
 }
 
+func TestImportCreatesProjectWhenManifestIsMissing(t *testing.T) {
+	repo := makeSkillRepo(t, "pdf")
+	project := t.TempDir()
+	t.Chdir(project)
+	writeLockJSON(t, project, map[string]map[string]string{
+		"pdf": {"source": repo, "sourceType": "git", "skillPath": "skills/pdf/SKILL.md"},
+	})
+
+	if _, stderr, err := run(t, "import"); err != nil {
+		t.Fatalf("import: %v\n%s", err, stderr)
+	}
+	for _, name := range []string{"skiletto.toml", "skiletto.lock"} {
+		if _, err := os.Stat(filepath.Join(project, name)); err != nil {
+			t.Errorf("import did not create %s: %v", name, err)
+		}
+	}
+}
+
 func TestImportGlobalScope(t *testing.T) {
 	repo := makeSkillRepo(t, "pdf")
 	home, config := setMachineHome(t)
@@ -136,11 +152,9 @@ func TestImportMissingFileGuidance(t *testing.T) {
 func TestImportHintsOnPreexistingClaudeSkillDir(t *testing.T) {
 	repo := makeSkillRepo(t, "pdf")
 	project := t.TempDir()
+	writeToml(t, project, "harnesses = [\"claude\"]\n\n[skills]\n")
 	t.Chdir(project)
 
-	if _, stderr, err := run(t, "harness", "enable", "claude"); err != nil {
-		t.Fatalf("harness enable: %v\n%s", err, stderr)
-	}
 	old := filepath.Join(project, ".claude", "skills", "pdf")
 	if err := os.MkdirAll(old, 0o755); err != nil {
 		t.Fatal(err)

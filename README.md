@@ -44,7 +44,9 @@ under `cmd/tto` while the root package builds the long `skiletto` name; the
 
 ## Usage
 
-Run in your project root:
+Run anywhere inside your project. Skiletto walks up to the nearest
+`skiletto.toml`; when none exists, `add` and `import` create a project in the
+current directory:
 
 ```sh
 # add a skill: <repo>[//subdir][@ref]
@@ -185,9 +187,13 @@ skiletto sync -g
   `~/.agents/skills/`, and the Claude adapter links into
   `~/.claude/skills/`. Local path and editable sources are the normal
   case here, so `add` skips the portability warning. The machine scope is
-  always explicit: running in your home directory without `--global` is an
-  error, not a project rooted at `~` — a home-rooted "project" would
-  silently share `~/.agents/skills` with the machine scope.
+  always explicit: without `--global`, skiletto walks up from the current
+  directory to the nearest `skiletto.toml`, stopping before the home
+  directory. `add` and `import` may create a project in the current directory;
+  other commands fail with guidance when no project is found. Running in your
+  home directory without `--global` is an error, not a project rooted at `~` —
+  a home-rooted "project" would silently share `~/.agents/skills` with the
+  machine scope.
 - Git repositories are cached user-wide: when fetching a remote source,
   skiletto keeps a clone in a shared cache and reuses it across installs
   and projects. The cache lives at `SKILETTO_CACHE_DIR` when set, else the
@@ -207,8 +213,8 @@ skiletto sync -g
   configs, the canonical skills dir with the installed skills and their
   health (the same statuses as `list`), the user-wide repo cache path and
   the command to clean it, the registered harnesses with
-  their link dirs, and the project scope when run inside a project. It
-  observes; it never writes.
+  their link dirs, and the nearest project scope found by walking up from the
+  current directory. It observes; it never writes.
 - `--no-input` (on any command) forces the non-interactive path: instead of
   prompting, skiletto fails with an actionable error listing the flags that
   script the choice. A set `CI` env var implies it.
