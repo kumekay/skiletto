@@ -19,14 +19,20 @@ import (
 
 // fakeSource serves an in-memory file tree at a fixed commit.
 type fakeSource struct {
-	commit   string
-	tree     map[string]string // slash-relative path -> content
-	resolved *int              // counts Resolve calls when non-nil
+	commit     string
+	tree       map[string]string // slash-relative path -> content
+	resolved   *int              // counts Resolve calls when non-nil
+	resolveSeq []string          // successive Resolve results when non-empty
 }
 
 func (f *fakeSource) Resolve(ref string) (string, error) {
 	if f.resolved != nil {
 		*f.resolved++
+	}
+	if len(f.resolveSeq) > 0 {
+		sha := f.resolveSeq[0]
+		f.resolveSeq = f.resolveSeq[1:]
+		return sha, nil
 	}
 	return f.commit, nil
 }
@@ -609,6 +615,70 @@ func TestAddSelectedRootSubpathInstalls(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(f.scope.SkillDir("r"), "SKILL.md")); err != nil {
 		t.Errorf("root skill not installed: %v", err)
+	}
+}
+
+// Issue #34: add --all and add --skill must resolve the source's ref
+// exactly once and install every skill from that single snapshot, not
+// re-resolve per skill.
+func TestAddAllResolvesOnce(t *testing.T) {
+	src := &fakeSource{commit: commitA, tree: map[string]string{
+		"skills/pdf/SKILL.md": "# pdf",
+		"skills/web/SKILL.md": "# web",
+	}}
+	count := 0
+	src.resolved = &count
+	f := newFixture(t, src)
+	spec := manifest.SourceSpec{Source: "https://github.com/o/r", Ref: "main"}
+
+	if err := f.eng.AddAll(spec, false); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("AddAll resolved %d times, want 1", count)
+	}
+}
+
+func TestAddSkillsResolvesOnce(t *testing.T) {
+	src := &fakeSource{commit: commitA, tree: map[string]string{
+		"skills/pdf/SKILL.md": "# pdf",
+		"skills/web/SKILL.md": "# web",
+	}}
+	count := 0
+	src.resolved = &count
+	f := newFixture(t, src)
+	spec := manifest.SourceSpec{Source: "https://github.com/o/r", Ref: "main"}
+
+	if err := f.eng.AddSkills(spec, []string{"pdf", "web"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("AddSkills resolved %d times, want 1", count)
+	}
+}
+
+// If the ref moves while add --all runs, every skill must still pin the
+// commit discovery saw: one command is one snapshot.
+func TestAddAllInstallsSnapshotWhenRefMoves(t *testing.T) {
+	const commitB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	src := &fakeSource{commit: commitA, tree: map[string]string{
+		"skills/pdf/SKILL.md": "# pdf",
+		"skills/web/SKILL.md": "# web",
+	}}
+	// The branch advances after discovery; Fetch only knows commitA, so a
+	// per-skill re-resolve would fail the install.
+	src.resolveSeq = []string{commitA, commitB, commitB}
+	f := newFixture(t, src)
+	spec := manifest.SourceSpec{Source: "https://github.com/o/r", Ref: "main"}
+
+	if err := f.eng.AddAll(spec, false); err != nil {
+		t.Fatalf("AddAll failed when the ref moved mid-run: %v", err)
+	}
+	for _, name := range []string{"pdf", "web"} {
+		s := f.readLock(t).Find(name)
+		if s == nil || s.Commit != commitA {
+			t.Errorf("lock entry for %s = %+v, want commit %s", name, s, commitA)
+		}
 	}
 }
 

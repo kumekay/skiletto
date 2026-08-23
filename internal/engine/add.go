@@ -89,7 +89,7 @@ func (e *Engine) Add(spec manifest.SourceSpec, editable bool) error {
 		return err
 	}
 	e.warnPathSource(spec)
-	if err := e.addOne(spec, editable, m, lf, enabled, hook); err != nil {
+	if err := e.addOne(spec, editable, m, lf, enabled, hook, ""); err != nil {
 		return err
 	}
 	return e.saveBoth(m, lf)
@@ -103,7 +103,7 @@ func (e *Engine) AddSelected(spec manifest.SourceSpec, subpaths []string, editab
 	if err := validateAdd(spec, editable); err != nil {
 		return err
 	}
-	return e.addSubpaths(spec, subpaths, editable)
+	return e.addSubpaths(spec, subpaths, "", editable)
 }
 
 // AddAll discovers every skill in the source and installs them all, without
@@ -114,11 +114,11 @@ func (e *Engine) AddAll(spec manifest.SourceSpec, editable bool) error {
 		return err
 	}
 	e.warnPathSource(spec)
-	subpaths, err := e.discover(spec, editable)
+	subpaths, commit, err := e.discover(spec, editable)
 	if err != nil {
 		return err
 	}
-	return e.addSubpaths(spec, subpaths, editable)
+	return e.addSubpaths(spec, subpaths, commit, editable)
 }
 
 // AddSkills discovers the source's skills and installs the ones whose
@@ -131,7 +131,7 @@ func (e *Engine) AddSkills(spec manifest.SourceSpec, names []string, editable bo
 		return err
 	}
 	e.warnPathSource(spec)
-	subpaths, err := e.discover(spec, editable)
+	subpaths, commit, err := e.discover(spec, editable)
 	if err != nil {
 		return err
 	}
@@ -174,13 +174,17 @@ func (e *Engine) AddSkills(spec manifest.SourceSpec, names []string, editable bo
 			return errors.New(b.String())
 		}
 	}
-	return e.addSubpaths(spec, picked, editable)
+	return e.addSubpaths(spec, picked, commit, editable)
 }
 
 // addSubpaths installs each subpath as its own skill, then writes the
-// manifest and lock once. Per-skill failures are reported as they happen
-// and summarized; skills that succeed are still saved.
-func (e *Engine) addSubpaths(spec manifest.SourceSpec, subpaths []string, editable bool) error {
+// manifest and lock once. commit, when non-empty, is the SHA discovery
+// already resolved the ref to: every skill installs from that one
+// snapshot, so a single command is atomic even if the branch moves
+// mid-run, and no per-skill re-resolve happens. Per-skill failures are
+// reported as they happen and summarized; skills that succeed are still
+// saved.
+func (e *Engine) addSubpaths(spec manifest.SourceSpec, subpaths []string, commit string, editable bool) error {
 	m, lf, err := e.load()
 	if err != nil {
 		return err
@@ -197,7 +201,7 @@ func (e *Engine) addSubpaths(spec manifest.SourceSpec, subpaths []string, editab
 	for _, sub := range subpaths {
 		s := spec
 		s.Path = sub
-		if err := e.addOne(s, editable, m, lf, enabled, hook); err != nil {
+		if err := e.addOne(s, editable, m, lf, enabled, hook, commit); err != nil {
 			failures++
 			_, _ = fmt.Fprintf(e.Err, "error: %s: %v\n", sub, err)
 			continue
@@ -217,18 +221,22 @@ func (e *Engine) addSubpaths(spec manifest.SourceSpec, subpaths []string, editab
 
 // addOne dispatches a single-skill install to the editable or pinned path.
 // hook is the resolved pre-install command; editable installs never run it.
-func (e *Engine) addOne(spec manifest.SourceSpec, editable bool, m *manifest.Manifest, lf *lockfile.Lockfile, enabled []adapter.Adapter, hook string) error {
+// commit, when non-empty, skips ref resolution in the pinned path.
+func (e *Engine) addOne(spec manifest.SourceSpec, editable bool, m *manifest.Manifest, lf *lockfile.Lockfile, enabled []adapter.Adapter, hook, commit string) error {
 	if editable {
 		return e.addEditable(spec, m, lf, enabled)
 	}
-	return e.addPinned(spec, m, lf, enabled, hook)
+	return e.addPinned(spec, m, lf, enabled, hook, commit)
 }
 
 // discover lists the skill subpaths of a source without installing them,
-// used by AddAll.
-func (e *Engine) discover(spec manifest.SourceSpec, editable bool) ([]string, error) {
+// used by AddAll. It also returns the commit the source's ref resolved
+// to ("" for editable sources), so the installs can pin the same
+// snapshot.
+func (e *Engine) discover(spec manifest.SourceSpec, editable bool) ([]string, string, error) {
 	if editable {
-		return e.discoverEditable(spec)
+		subs, err := e.discoverEditable(spec)
+		return subs, "", err
 	}
 	return e.discoverPinned(spec)
 }
@@ -236,27 +244,27 @@ func (e *Engine) discover(spec manifest.SourceSpec, editable bool) ([]string, er
 // discoverPinned resolves the ref and stages the source to enumerate its
 // skills. A single skill is returned as a one-element list; several come
 // back from the MultipleSkillsError the stage raises.
-func (e *Engine) discoverPinned(spec manifest.SourceSpec) ([]string, error) {
+func (e *Engine) discoverPinned(spec manifest.SourceSpec) ([]string, string, error) {
 	src, err := e.NewSource(spec.Source)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	e.progressStep(specLabel(spec), "resolving")
 	commit, err := src.Resolve(spec.Ref)
 	if err != nil {
-		return nil, resolveRefErr(spec, err)
+		return nil, "", resolveRefErr(spec, err)
 	}
 	e.progressStep(specLabel(spec), "fetching")
 	_, effPath, cleanup, err := e.stage(src, commit, spec.Path)
 	if err != nil {
 		var multi *MultipleSkillsError
 		if errors.As(err, &multi) {
-			return multi.Skills, nil
+			return multi.Skills, commit, nil
 		}
-		return nil, err
+		return nil, "", err
 	}
 	cleanup()
-	return []string{effPath}, nil
+	return []string{effPath}, commit, nil
 }
 
 // discoverEditable enumerates the skills under a local path source.
@@ -340,17 +348,20 @@ func (e *Engine) addEditable(spec manifest.SourceSpec, m *manifest.Manifest, lf 
 }
 
 // addPinned resolves the spec's ref to a commit (via ls-remote for URLs,
-// locally for path sources, which must be git repositories), installs the
-// pinned content, and locks commit and hash.
-func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *lockfile.Lockfile, enabled []adapter.Adapter, hook string) error {
+// locally for path sources, which must be git repositories) unless commit
+// already carries the resolved SHA, installs the pinned content, and
+// locks commit and hash.
+func (e *Engine) addPinned(spec manifest.SourceSpec, m *manifest.Manifest, lf *lockfile.Lockfile, enabled []adapter.Adapter, hook, commit string) error {
 	src, err := e.NewSource(spec.Source)
 	if err != nil {
 		return err
 	}
-	e.progressStep(specLabel(spec), "resolving")
-	commit, err := src.Resolve(spec.Ref)
-	if err != nil {
-		return resolveRefErr(spec, err)
+	if commit == "" {
+		e.progressStep(specLabel(spec), "resolving")
+		commit, err = src.Resolve(spec.Ref)
+		if err != nil {
+			return resolveRefErr(spec, err)
+		}
 	}
 	e.progressStep(specLabel(spec), "fetching")
 	staged, effPath, cleanup, err := e.stage(src, commit, spec.Path)
