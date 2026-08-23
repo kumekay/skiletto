@@ -41,7 +41,8 @@ func newAddCmd() *cobra.Command {
 			"a multi-select picker in a terminal; --skill <name> (repeatable) installs " +
 			"the named skills, --all installs every skill, and without a TTY (or with " +
 			"--no-input) it prints the skills and the exact commands to script the choice.",
-		Args: cobra.ExactArgs(1),
+		Args:        cobra.ExactArgs(1),
+		Annotations: map[string]string{projectBootstrapAnnotation: "true"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			spec, err := manifest.ParseSourceSpec(args[0])
 			if err != nil {

@@ -64,38 +64,11 @@ func TestGlobalFlagIsPersistentAndInterspersed(t *testing.T) {
 	}
 }
 
-func TestFindProjectRootWalksUpToNearestManifest(t *testing.T) {
-	home := t.TempDir()
-	project := filepath.Join(home, "src", "project")
-	nested := filepath.Join(project, "one", "two")
-	if err := os.MkdirAll(nested, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeToml(t, project, "[skills]\n")
-
-	root, found, err := findProjectRoot(nested, home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !found || root != project {
-		t.Errorf("findProjectRoot() = %q, %v; want %q, true", root, found, project)
-	}
-}
-
-func TestFindProjectRootStopsBeforeHome(t *testing.T) {
-	home := t.TempDir()
-	nested := filepath.Join(home, "work", "nested")
-	if err := os.MkdirAll(nested, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeToml(t, home, "[skills]\n")
-
-	root, found, err := findProjectRoot(nested, home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if found || root != nested {
-		t.Errorf("findProjectRoot() = %q, %v; want %q, false", root, found, nested)
+func TestBootstrapCommandsDeclareProjectBootstrapAnnotation(t *testing.T) {
+	for _, cmd := range []*cobra.Command{newAddCmd(), newImportCmd()} {
+		if cmd.Annotations["skiletto.dev/project-bootstrap"] != "true" {
+			t.Errorf("%s lacks the project-bootstrap annotation", cmd.Name())
+		}
 	}
 }
 

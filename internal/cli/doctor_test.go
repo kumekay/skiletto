@@ -117,6 +117,12 @@ func TestMachineConfigShadowWarning(t *testing.T) {
 	}
 }
 
+func TestDoctorHelpDescribesNearestAncestorProject(t *testing.T) {
+	if got := newDoctorCmd().Long; !strings.Contains(got, "nearest ancestor") {
+		t.Errorf("doctor Long help does not describe nearest-ancestor resolution:\n%s", got)
+	}
+}
+
 func TestDoctorMachineSection(t *testing.T) {
 	home := freshHome(t)
 	cfgDir := filepath.Join(home, ".config", "skiletto")

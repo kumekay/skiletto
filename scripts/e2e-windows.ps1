@@ -48,6 +48,9 @@ Push-Location $project
 $link      = Join-Path $project '.claude/skills/demo'
 $canonical = Join-Path $project '.agents/skills/demo'
 
+# harness commands require an existing project manifest; add/import are the
+# only commands that bootstrap one.
+Set-Content -Path (Join-Path $project 'skiletto.toml') -Value "[skills]`n" -NoNewline
 # harness linking is opt-in: enable claude so add/sync link into .claude
 Run @('harness', 'enable', 'claude')
 
@@ -91,6 +94,7 @@ $link2      = Join-Path $project2 '.claude/skills/demo'
 $canonical2 = Join-Path $project2 '.agents/skills/demo'
 $linkFile2  = Join-Path $link2 'SKILL.md'
 
+Set-Content -Path (Join-Path $project2 'skiletto.toml') -Value "[skills]`n" -NoNewline
 # harness linking is opt-in: enable claude so add/sync/update link into .claude
 Run @('harness', 'enable', 'claude')
 

@@ -31,7 +31,7 @@ func newDoctorCmd() *cobra.Command {
 			"skills dir with the installed skills and their health, the user-wide " +
 			"git repository cache (and how to clean it), the registered " +
 			"harnesses with their link dirs, and — when run inside a project — the " +
-			"project scope. It observes; it never writes.",
+			"project scope resolved from the nearest ancestor skiletto.toml. It observes; it never writes.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			res, err := resolveMachine()
@@ -61,7 +61,7 @@ func projectScope(home string) (scope.Scope, bool, error) {
 	if err != nil {
 		return scope.Scope{}, false, err
 	}
-	root, found, err := findProjectRoot(start, home)
+	root, found, err := scope.FindProjectRoot(start, home)
 	if err != nil {
 		return scope.Scope{}, false, err
 	}

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -25,6 +24,8 @@ var version = "dev"
 // userConfigDir is os.UserConfigDir behind a variable so tests can pin
 // the platform config dir (e.g. exercise macOS behavior on any OS).
 var userConfigDir = os.UserConfigDir
+
+const projectBootstrapAnnotation = "skiletto.dev/project-bootstrap"
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -80,11 +81,11 @@ func engineFor(cmd *cobra.Command) (*engine.Engine, error) {
 		if sameDir(start, machine.Root) {
 			return nil, fmt.Errorf("the current directory is your home directory, the machine scope root; pass --global (-g) to manage machine-wide skills")
 		}
-		root, found, err := findProjectRoot(start, machine.Root)
+		root, found, err := scope.FindProjectRoot(start, machine.Root)
 		if err != nil {
 			return nil, err
 		}
-		if !found && cmd.Name() != "add" && cmd.Name() != "import" {
+		if !found && cmd.Annotations[projectBootstrapAnnotation] != "true" {
 			return nil, fmt.Errorf("no skiletto.toml found searching from %s; run this command inside a project, create one here with skiletto add or skiletto import, or pass --global (-g) to use the machine scope", start)
 		}
 		sc = scope.Project(root)
@@ -112,30 +113,6 @@ func engineFor(cmd *cobra.Command) (*engine.Engine, error) {
 		eng.Err = p.Writer(eng.Err)
 	}
 	return eng, nil
-}
-
-// findProjectRoot walks from start toward the filesystem root and returns the
-// nearest directory containing skiletto.toml. stop is excluded from the search
-// so a manifest in the home directory can never become a project manifest.
-func findProjectRoot(start, stop string) (string, bool, error) {
-	root := filepath.Clean(start)
-	for {
-		if sameDir(root, stop) {
-			return start, false, nil
-		}
-		_, err := os.Stat(filepath.Join(root, "skiletto.toml"))
-		if err == nil {
-			return root, true, nil
-		}
-		if !os.IsNotExist(err) {
-			return start, false, err
-		}
-		parent := filepath.Dir(root)
-		if parent == root {
-			return start, false, nil
-		}
-		root = parent
-	}
 }
 
 // progressEnabled reports whether per-skill progress may render: stderr
