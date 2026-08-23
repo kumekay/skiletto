@@ -120,10 +120,10 @@ func TestAddAllReportsDiscoveryProgress(t *testing.T) {
 	if err := f.eng.AddAll(spec, false); err != nil {
 		t.Fatal(err)
 	}
+	// Discovery resolves once for the whole source; each skill only fetches.
 	want := []string{
 		"step https://github.com/o/r resolving",
 		"step https://github.com/o/r fetching",
-		"step skills/pdf resolving",
 		"step skills/pdf fetching",
 		"clear",
 	}
