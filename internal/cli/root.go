@@ -34,6 +34,8 @@ func newRootCmd() *cobra.Command {
 		Version:      version,
 		SilenceUsage: true,
 	}
+	cmd.PersistentFlags().BoolP("global", "g", false,
+		"use the machine scope instead of the current project")
 	cmd.PersistentFlags().Bool("no-input", false,
 		"never prompt; where a prompt would appear, fail with an actionable error listing the flags to script the choice (implied when the CI env var is set)")
 	// Registering the -v shorthand here keeps cobra's auto --version flag
@@ -52,11 +54,15 @@ func newRootCmd() *cobra.Command {
 }
 
 // engineFor builds an engine for the selected scope, writing through the
-// command's streams. global selects the machine scope (manifest and lock
-// in the platform config dir, skills under the home dir); otherwise the
-// project scope rooted at the current directory is used. The machine scope
-// is resolved either way: its harnesses apply in every scope.
-func engineFor(cmd *cobra.Command, global bool) (*engine.Engine, error) {
+// command's streams. The root --global flag selects the machine scope
+// (manifest and lock in the platform config dir, skills under the home dir);
+// otherwise the project scope rooted at the current directory is used. The
+// machine scope is resolved either way: its harnesses apply in every scope.
+func engineFor(cmd *cobra.Command) (*engine.Engine, error) {
+	global, err := cmd.Flags().GetBool("global")
+	if err != nil {
+		return nil, err
+	}
 	res, err := resolveMachine()
 	if err != nil {
 		return nil, err

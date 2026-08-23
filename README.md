@@ -169,8 +169,9 @@ skiletto sync -g
 - `--editable` (local paths only) symlinks the working tree instead of
   copying a pinned commit, so edits are live; such entries carry no
   commit/hash and are never drift-checked.
-- `--global` / `-g` (on any command) switches to the machine scope. The
-  manifest and lock live in the machine config dir, resolved in this order
+- `--global` / `-g` switches to the machine scope and may appear anywhere
+  in the invocation before `--`. The manifest and lock live in the machine
+  config dir, resolved in this order
   on every platform: `SKILETTO_CONFIG_DIR` (names the directory holding
   the files directly, no `skiletto/` subdirectory appended) →
   `XDG_CONFIG_HOME` → `~/.config/skiletto/` when its `skiletto.toml`

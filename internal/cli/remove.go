@@ -5,7 +5,7 @@ import (
 )
 
 func newRemoveCmd() *cobra.Command {
-	var force, global bool
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "remove <name>",
 		Short: "Remove a skill from the manifest, lock, links, and disk",
@@ -15,7 +15,7 @@ func newRemoveCmd() *cobra.Command {
 			"drifted skill is refused unless --force, since removal discards local edits.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			eng, err := engineFor(cmd, global)
+			eng, err := engineFor(cmd)
 			if err != nil {
 				return err
 			}
@@ -24,7 +24,5 @@ func newRemoveCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&force, "force", false,
 		"remove a drifted skill even though it has local modifications")
-	cmd.Flags().BoolVarP(&global, "global", "g", false,
-		"operate on the machine-scope manifest and lock instead of the current project")
 	return cmd
 }

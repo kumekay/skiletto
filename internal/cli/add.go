@@ -27,7 +27,7 @@ var promptSelector = func(noInput bool) ui.Prompter {
 }
 
 func newAddCmd() *cobra.Command {
-	var editable, global, all bool
+	var editable, all bool
 	var skills []string
 	cmd := &cobra.Command{
 		Use:   "add <source>",
@@ -56,7 +56,7 @@ func newAddCmd() *cobra.Command {
 				}
 				return fmt.Errorf("--all installs every skill in the source and cannot be combined with an explicit //path (%q)", spec.Path)
 			}
-			eng, err := engineFor(cmd, global)
+			eng, err := engineFor(cmd)
 			if err != nil {
 				return err
 			}
@@ -89,8 +89,6 @@ func newAddCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&editable, "editable", false,
 		"link the working tree of a local path source instead of copying a pinned commit")
-	cmd.Flags().BoolVarP(&global, "global", "g", false,
-		"install for the whole machine (config dir manifest, skills under ~/.agents/skills) instead of the current project")
 	cmd.Flags().BoolVar(&all, "all", false,
 		"install every skill discovered in the source without prompting")
 	cmd.Flags().StringArrayVar(&skills, "skill", nil,
