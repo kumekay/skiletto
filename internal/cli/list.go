@@ -5,7 +5,6 @@ import (
 )
 
 func newListCmd() *cobra.Command {
-	var global bool
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List managed skills with drift status, plus unmanaged skills",
@@ -15,14 +14,12 @@ func newListCmd() *cobra.Command {
 			"only observes: it never installs, removes, or restores anything.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			eng, err := engineFor(cmd, global)
+			eng, err := engineFor(cmd)
 			if err != nil {
 				return err
 			}
 			return eng.List()
 		},
 	}
-	cmd.Flags().BoolVarP(&global, "global", "g", false,
-		"list the machine-scope skills instead of the current project's")
 	return cmd
 }

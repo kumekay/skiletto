@@ -5,7 +5,7 @@ import (
 )
 
 func newImportCmd() *cobra.Command {
-	var force, global bool
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "import [path]",
 		Short: "Bootstrap skiletto.toml and skiletto.lock from a Vercel skills-lock.json",
@@ -24,7 +24,7 @@ func newImportCmd() *cobra.Command {
 			if len(args) == 1 {
 				path = args[0]
 			}
-			eng, err := engineFor(cmd, global)
+			eng, err := engineFor(cmd)
 			if err != nil {
 				return err
 			}
@@ -33,8 +33,6 @@ func newImportCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&force, "force", false,
 		"overwrite installed skills that import cannot prove pristine (drifted lock orphans or unmanaged trees)")
-	cmd.Flags().BoolVarP(&global, "global", "g", false,
-		"write the machine-scope manifest and lock (config dir, skills under ~/.agents/skills) instead of the current project")
 	cmd.Flags().Bool("no-hooks", false,
 		"skip the pre-install hook configured under [hooks] in skiletto.toml")
 	return cmd

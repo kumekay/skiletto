@@ -60,61 +60,54 @@ func newHarnessCmd() *cobra.Command {
 }
 
 func newHarnessListCmd() *cobra.Command {
-	var global bool
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "Show registered harnesses, where they are enabled, and their link dirs",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			eng, err := engineFor(cmd, global)
+			eng, err := engineFor(cmd)
 			if err != nil {
 				return err
 			}
 			return eng.HarnessList()
 		},
 	}
-	cmd.Flags().BoolVarP(&global, "global", "g", false,
-		"report for the machine scope instead of the current project")
 	return cmd
 }
 
 func newHarnessEnableCmd() *cobra.Command {
-	var global, force bool
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "enable <name>...",
 		Short: "Enable harnesses in this scope and link all installed skills into them",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			eng, err := engineFor(cmd, global)
+			eng, err := engineFor(cmd)
 			if err != nil {
 				return err
 			}
 			return eng.HarnessEnable(args, force)
 		},
 	}
-	cmd.Flags().BoolVarP(&global, "global", "g", false,
-		"enable machine-wide (applies in every scope) instead of for the current project")
 	cmd.Flags().BoolVar(&force, "force", false,
 		"replace a copy-linked install that has diverged from the canonical tree")
 	return cmd
 }
 
 func newHarnessDisableCmd() *cobra.Command {
-	var global, force bool
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "disable <name>...",
 		Short: "Disable harnesses in this scope and remove their skill links",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			eng, err := engineFor(cmd, global)
+			eng, err := engineFor(cmd)
 			if err != nil {
 				return err
 			}
 			return eng.HarnessDisable(args, force)
 		},
 	}
-	cmd.Flags().BoolVarP(&global, "global", "g", false,
-		"disable machine-wide instead of for the current project")
 	cmd.Flags().BoolVar(&force, "force", false,
 		"also remove a copy-linked install that has diverged from the canonical tree")
 	return cmd
