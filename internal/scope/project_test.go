@@ -46,13 +46,30 @@ func TestFindProjectRootStopsBeforeHome(t *testing.T) {
 	}
 }
 
+func TestFindProjectRootReturnsCleanStartWhenNotFound(t *testing.T) {
+	home := t.TempDir()
+	nested := filepath.Join(home, "work", "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	start := nested + string(filepath.Separator) + ".." + string(filepath.Separator) + "nested"
+
+	root, found, err := FindProjectRoot(start, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found || root != nested {
+		t.Errorf("FindProjectRoot() = %q, %v; want %q, false", root, found, nested)
+	}
+}
+
 func TestFindProjectRootWrapsStatErrors(t *testing.T) {
 	start := filepath.Join(t.TempDir(), "not-a-directory")
 	if err := os.WriteFile(start, []byte("file"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	_, _, err := FindProjectRoot(start, t.TempDir())
+	_, _, err := FindProjectRoot(start, start)
 	if err == nil {
 		t.Fatal("FindProjectRoot() succeeded for a non-directory start")
 	}

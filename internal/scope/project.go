@@ -10,7 +10,15 @@ import (
 // nearest directory containing skiletto.toml. stop is excluded from the search
 // so a manifest in the home directory can never become a project manifest.
 func FindProjectRoot(start, stop string) (string, bool, error) {
-	root := filepath.Clean(start)
+	start = filepath.Clean(start)
+	root := start
+	info, err := os.Stat(root)
+	if err != nil {
+		return root, false, fmt.Errorf("resolving project root: %w", err)
+	}
+	if !info.IsDir() {
+		return root, false, fmt.Errorf("resolving project root: %s is not a directory", root)
+	}
 	for {
 		if sameDir(root, stop) {
 			return start, false, nil
