@@ -89,15 +89,17 @@ func ResolveMachine(home string, getenv func(string) string, userConfigDir func(
 		Source: chosen.source,
 	}
 	chosenPath := filepath.Clean(manifestOf(*chosen))
+	seenPaths := map[string]bool{chosenPath: true}
 	for i := range cands {
 		c := cands[i]
 		if c.source == chosen.source {
 			continue // the winner itself (each source appears once)
 		}
 		p := filepath.Clean(manifestOf(c))
-		if p == chosenPath {
-			continue // Linux: the platform default IS the ~/.config fallback
+		if seenPaths[p] {
+			continue // multiple resolution rules can name the same manifest
 		}
+		seenPaths[p] = true
 		if fileExists(p) {
 			res.Shadowed = append(res.Shadowed, p)
 		}

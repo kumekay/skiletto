@@ -170,6 +170,24 @@ func TestResolveMachineNoSelfShadowOnLinux(t *testing.T) {
 	}
 }
 
+func TestResolveMachineDeduplicatesShadowedPaths(t *testing.T) {
+	home := t.TempDir()
+	dir := t.TempDir()
+	shadowed := filepath.Join(home, ".config", "skiletto")
+	writeMachineManifest(t, shadowed)
+
+	res, err := ResolveMachine(home,
+		envOf(map[string]string{"SKILETTO_CONFIG_DIR": dir}),
+		func() (string, error) { return filepath.Join(home, ".config"), nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(shadowed, "skiletto.toml")
+	if len(res.Shadowed) != 1 || res.Shadowed[0] != want {
+		t.Errorf("Shadowed = %v, want [%s]", res.Shadowed, want)
+	}
+}
+
 // SKILETTO_CONFIG_DIR overriding while stray configs exist elsewhere reports
 // both as shadowed.
 func TestResolveMachineEnvOverrideShadowsBoth(t *testing.T) {
