@@ -108,11 +108,9 @@ func run(t *testing.T, args ...string) (stdout, stderr string, err error) {
 func TestCacheSurvivesSourceDisappearance(t *testing.T) {
 	repo := makeSkillRepo(t, "pdf")
 	project := t.TempDir()
+	writeToml(t, project, "harnesses = [\"claude\"]\n\n[skills]\n")
 	t.Chdir(project)
 
-	if _, stderr, err := run(t, "harness", "enable", "claude"); err != nil {
-		t.Fatalf("harness enable: %v\n%s", err, stderr)
-	}
 	if _, stderr, err := run(t, "add", "file://"+repo+"//skills/pdf"); err != nil {
 		t.Fatalf("add: %v\n%s", err, stderr)
 	}
@@ -140,11 +138,9 @@ func TestCacheSurvivesSourceDisappearance(t *testing.T) {
 func TestAddAndSyncRoundTrip(t *testing.T) {
 	repo := makeSkillRepo(t, "pdf")
 	project := t.TempDir()
+	writeToml(t, project, "harnesses = [\"claude\"]\n\n[skills]\n")
 	t.Chdir(project)
 
-	if _, stderr, err := run(t, "harness", "enable", "claude"); err != nil {
-		t.Fatalf("harness enable: %v\n%s", err, stderr)
-	}
 	_, stderr, err := run(t, "add", repo+"//skills/pdf")
 	if err != nil {
 		t.Fatalf("add: %v\n%s", err, stderr)

@@ -117,6 +117,12 @@ func TestMachineConfigShadowWarning(t *testing.T) {
 	}
 }
 
+func TestDoctorHelpDescribesNearestAncestorProject(t *testing.T) {
+	if got := newDoctorCmd().Long; !strings.Contains(got, "nearest ancestor") {
+		t.Errorf("doctor Long help does not describe nearest-ancestor resolution:\n%s", got)
+	}
+}
+
 func TestDoctorMachineSection(t *testing.T) {
 	home := freshHome(t)
 	cfgDir := filepath.Join(home, ".config", "skiletto")
@@ -172,10 +178,8 @@ func TestDoctorShadowWarning(t *testing.T) {
 func TestDoctorHarnessProjectEnablement(t *testing.T) {
 	freshHome(t)
 	project := t.TempDir()
+	writeToml(t, project, "harnesses = [\"claude\"]\n\n[skills]\n")
 	t.Chdir(project)
-	if _, stderr, err := run(t, "harness", "enable", "claude"); err != nil {
-		t.Fatalf("harness enable: %v\n%s", err, stderr)
-	}
 
 	stdout, stderr, err := run(t, "doctor")
 	if err != nil {
@@ -189,14 +193,41 @@ func TestDoctorHarnessProjectEnablement(t *testing.T) {
 	}
 }
 
+func TestDoctorFindsProjectFromSubdirectory(t *testing.T) {
+	home := freshHome(t)
+	project := filepath.Join(home, "src", "project")
+	nested := filepath.Join(project, "one", "two")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeToml(t, project, "harnesses = [\"claude\"]\n\n[skills]\n")
+	t.Chdir(nested)
+
+	stdout, stderr, err := run(t, "doctor")
+	if err != nil {
+		t.Fatalf("doctor: %v\n%s", err, stderr)
+	}
+	for _, want := range []string{
+		"Machine config",
+		"Project (" + project + ")",
+		filepath.Join(project, "skiletto.toml") + " (exists)",
+		"enabled (project)",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("doctor output missing %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "Project ("+nested+")") {
+		t.Errorf("doctor invented a nested project scope:\n%s", stdout)
+	}
+}
+
 func TestDoctorProjectSectionAndSkillHealth(t *testing.T) {
 	freshHome(t)
 	repo := makeSkillRepo(t, "pdf")
 	project := t.TempDir()
+	writeToml(t, project, "harnesses = [\"claude\"]\n\n[skills]\n")
 	t.Chdir(project)
-	if _, stderr, err := run(t, "harness", "enable", "claude"); err != nil {
-		t.Fatalf("harness enable: %v\n%s", err, stderr)
-	}
 	if _, stderr, err := run(t, "add", repo+"//skills/pdf"); err != nil {
 		t.Fatalf("add: %v\n%s", err, stderr)
 	}

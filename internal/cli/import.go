@@ -18,7 +18,8 @@ func newImportCmd() *cobra.Command {
 			"HEAD. Entries already in the manifest are skipped; entries that cannot " +
 			"be mapped or resolved are reported and cause a non-zero exit without " +
 			"stopping the ones that do resolve. Import is one-way.",
-		Args: cobra.MaximumNArgs(1),
+		Args:        cobra.MaximumNArgs(1),
+		Annotations: map[string]string{projectBootstrapAnnotation: "true"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := "skills-lock.json"
 			if len(args) == 1 {

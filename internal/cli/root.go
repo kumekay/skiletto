@@ -25,6 +25,8 @@ var version = "dev"
 // the platform config dir (e.g. exercise macOS behavior on any OS).
 var userConfigDir = os.UserConfigDir
 
+const projectBootstrapAnnotation = "skiletto.dev/project-bootstrap"
+
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "skiletto",
@@ -56,8 +58,9 @@ func newRootCmd() *cobra.Command {
 // engineFor builds an engine for the selected scope, writing through the
 // command's streams. The root --global flag selects the machine scope
 // (manifest and lock in the platform config dir, skills under the home dir);
-// otherwise the project scope rooted at the current directory is used. The
-// machine scope is resolved either way: its harnesses apply in every scope.
+// otherwise the project scope is the nearest ancestor with a manifest. Add
+// and import may bootstrap a project in the current directory. The machine
+// scope is resolved either way: its harnesses apply in every scope.
 func engineFor(cmd *cobra.Command) (*engine.Engine, error) {
 	global, err := cmd.Flags().GetBool("global")
 	if err != nil {
@@ -71,12 +74,19 @@ func engineFor(cmd *cobra.Command) (*engine.Engine, error) {
 	machine := res.Scope
 	sc := machine
 	if !global {
-		root, err := os.Getwd()
+		start, err := os.Getwd()
 		if err != nil {
 			return nil, err
 		}
-		if sameDir(root, machine.Root) {
+		if sameDir(start, machine.Root) {
 			return nil, fmt.Errorf("the current directory is your home directory, the machine scope root; pass --global (-g) to manage machine-wide skills")
+		}
+		root, found, err := scope.FindProjectRoot(start, machine.Root)
+		if err != nil {
+			return nil, err
+		}
+		if !found && cmd.Annotations[projectBootstrapAnnotation] != "true" {
+			return nil, fmt.Errorf("no skiletto.toml found searching from %s; run this command inside a project, create one here with skiletto add or skiletto import, or pass --global (-g) to use the machine scope", start)
 		}
 		sc = scope.Project(root)
 	}

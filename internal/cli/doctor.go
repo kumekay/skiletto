@@ -31,14 +31,14 @@ func newDoctorCmd() *cobra.Command {
 			"skills dir with the installed skills and their health, the user-wide " +
 			"git repository cache (and how to clean it), the registered " +
 			"harnesses with their link dirs, and — when run inside a project — the " +
-			"project scope. It observes; it never writes.",
+			"project scope resolved from the nearest ancestor skiletto.toml. It observes; it never writes.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			res, err := resolveMachine()
 			if err != nil {
 				return err
 			}
-			project, hasProject, err := projectScope()
+			project, hasProject, err := projectScope(res.Scope.Root)
 			if err != nil {
 				return err
 			}
@@ -53,18 +53,19 @@ func newDoctorCmd() *cobra.Command {
 	}
 }
 
-// projectScope returns the project scope of the current directory and
-// whether it holds a skiletto.toml.
-func projectScope() (scope.Scope, bool, error) {
-	root, err := os.Getwd()
+// projectScope returns the nearest project scope containing the current
+// directory. When none exists, it returns a scope rooted at the current
+// directory for the diagnostic no-project message.
+func projectScope(home string) (scope.Scope, bool, error) {
+	start, err := os.Getwd()
 	if err != nil {
 		return scope.Scope{}, false, err
 	}
-	project := scope.Project(root)
-	if _, err := os.Stat(project.ManifestPath); err != nil {
-		return project, false, nil
+	root, found, err := scope.FindProjectRoot(start, home)
+	if err != nil {
+		return scope.Scope{}, false, err
 	}
-	return project, true, nil
+	return scope.Project(root), found, nil
 }
 
 // printMachineSection reports the resolved machine config, its files, the
@@ -150,12 +151,12 @@ func harnessNames(path string) map[string]bool {
 	return names
 }
 
-// printProjectSection reports the project scope of the current directory
-// when it holds a skiletto.toml; otherwise it says so.
+// printProjectSection reports the nearest project scope containing the
+// current directory; otherwise it says no project was found.
 func printProjectSection(out io.Writer, res scope.Resolution, project scope.Scope, hasProject bool) error {
 	_, _ = fmt.Fprintf(out, "Project (%s)\n", project.Root)
 	if !hasProject {
-		_, _ = fmt.Fprintf(out, "  no skiletto.toml in the current directory\n")
+		_, _ = fmt.Fprintf(out, "  no skiletto.toml found from the current directory\n")
 		return nil
 	}
 	_, _ = fmt.Fprintf(out, "  manifest:        %s (%s)\n", project.ManifestPath, fileState(project.ManifestPath))
